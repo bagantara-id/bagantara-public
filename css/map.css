@@ -1,0 +1,403 @@
+/* ==========================================
+   SISTEM PEMETAAN & ANTARMUKA MULTI-TUJUAN
+   ========================================== */
+.map-area { flex: 1; background-color: #0f172a; position: relative; z-index: 1; height: 100%; } 
+#map-container { width: 100%; height: 100%; position: relative; z-index: 1; }
+.leaflet-control-attribution { display: none !important; }
+
+/* Palet Mode Malam Elegan */
+body:not(.light-mode) .leaflet-tile-pane {
+    filter: invert(90%) grayscale(20%) sepia(20%) hue-rotate(195deg) saturate(350%) brightness(85%) contrast(110%);
+}
+.leaflet-control-container .leaflet-top.leaflet-left { top: 90px; }
+
+/* ANTI-DISTORSI: Paksa Input Transparan untuk WebView */
+input[type="text"], input[type="tel"] {
+    background-color: transparent !important;
+    color: var(--text-main) !important;
+    box-shadow: none !important;
+}
+
+/* ==========================================
+   PURE CSS TEARDROP PIN (PENGGANTI PNG)
+   ========================================== */
+.center-pin-container {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -100%); 
+    z-index: 1000; pointer-events: none; 
+    display: flex; flex-direction: column; align-items: center;
+    transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.pin-label {
+    background: var(--void-black); color: var(--text-main);
+    border: 1px solid var(--neon-gold); border-radius: 20px;
+    padding: 6px 14px; font-family: 'Space Grotesk', monospace;
+    font-size: 0.7rem; font-weight: bold; margin-bottom: 25px; /* Jarak ke pin bawah */
+    box-shadow: 0 5px 15px rgba(0,0,0,0.8); white-space: nowrap;
+}
+
+/* Bentuk Pin Geometris Murni */
+.css-pin-marker {
+    width: 32px; height: 32px;
+    border-radius: 50% 50% 50% 0;
+    background: #ef4444; /* SINKRONISASI: Merah Tujuan */
+    position: absolute; bottom: 0;
+    transform: rotate(-45deg);
+    box-shadow: -3px 3px 6px rgba(0,0,0,0.4);
+    border: 2px solid #ffffff;
+    transition: background 0.3s ease;
+}
+/* Titik Tengah Pin */
+.css-pin-marker::after {
+    content: ''; width: 12px; height: 12px;
+    background: #ffffff; border-radius: 50%;
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+}
+/* Bayangan Jatuh (Drop Shadow Bawah Pin) */
+.pin-shadow-base {
+    width: 14px; height: 6px;
+    background: rgba(0,0,0,0.5);
+    border-radius: 50%;
+    position: absolute; bottom: -3px;
+    filter: blur(2px);
+}
+/* Animasi Gelombang Radar */
+.css-pin-marker::before {
+    content: ''; position: absolute; top: 50%; left: 50%;
+    width: 60px; height: 60px;
+    background: rgba(239, 68, 68, 0.3); border: 1px solid #ef4444; /* SINKRONISASI: Merah Tujuan */
+    border-radius: 50%; transform: translate(-50%, -50%);
+    z-index: -1; animation: radar-pulse 1.5s infinite ease-out;
+}
+
+/* Mode Jemput (Emas Tajam) */
+.pickup-mode .css-pin-marker { background: #bd8c11; }
+.pickup-mode .css-pin-marker::before { background: rgba(189, 140, 17, 0.3); border-color: #bd8c11; }
+
+/* Mode Toko Jastip (Biru Tekno) */
+.jastip-store-mode .css-pin-marker { background: #3b82f6; }
+.jastip-store-mode .css-pin-marker::before { background: rgba(59, 130, 246, 0.3); border-color: #3b82f6; }
+
+@keyframes radar-pulse {
+    0% { transform: translate(-50%, -50%) scale(0.3); opacity: 1; }
+    100% { transform: translate(-50%, -50%) scale(2.5); opacity: 0; }
+}
+
+.map-is-moving .center-pin-container { transform: translate(-50%, -130%); }
+
+/* ==========================================
+   ARSITEKTUR INLINE SEARCH & TWO-STEP EXPANSION
+   ========================================== */
+#view-search-route { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+.search-expansion-card {
+    background: var(--void-black); border-radius: 20px;
+    margin: 15px; padding: 20px 15px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid var(--border-cyber);
+    display: flex; flex-direction: column; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.mini-map-box { height: 140px; width: 100%; border-radius: 12px; background: #1a1c23; margin-bottom: 15px; border: 1px solid var(--border-cyber); transition: all 0.3s ease; }
+
+/* Mode Ringkas vs Layar Penuh (Memperbaiki Viewport Tenggelam) */
+#view-search-route.compact-mode .hidden-compact { display: none !important; }
+#view-search-route.expanded-mode { padding-top: 0 !important; background: var(--card-bg-1); }
+
+/* LAYAR PENCARIAN RUTE (FULL SCREEN CARD MURNI) */
+#view-search-route { z-index: 20; display: flex; flex-direction: column; background: var(--card-bg-1); overflow: hidden; } 
+
+/* Isolasi CSS agar hanya berdampak pada layar rute, tidak merusak Jastip */
+#view-search-route .search-expansion-card { 
+    margin: 0; border-radius: 0; height: auto; 
+    background: var(--card-bg-1); 
+    border-top: none;
+    /* Memberikan ruang aman untuk poni/kamera HP (Safe Area) di bagian atas */
+    padding: calc(env(safe-area-inset-top, 20px) + 20px) 20px calc(env(safe-area-inset-bottom, 20px) + 20px) 20px; 
+    box-shadow: none;
+    z-index: 2; position: relative; 
+    flex-grow: 1; margin-top: 0; 
+    transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow-y: auto; 
+}
+
+/* Definisi default card untuk layar lain (seperti layar Jastip) */
+.search-expansion-card { 
+    margin: 0; border-radius: 24px 24px 0 0; height: auto; 
+    background: var(--card-bg-1); 
+    border-top: 1px solid var(--border-cyber);
+    padding: 25px 20px calc(env(safe-area-inset-bottom, 20px) + 20px) 20px; 
+    box-shadow: 0 -10px 25px rgba(0,0,0,0.15);
+    z-index: 2; position: relative; 
+    flex-grow: 1; margin-top: auto; 
+    transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.mini-map-box { display: none !important; }
+
+/* INLINE GRID LAYOUT (5 Kolom Presisi untuk Ikon Peta) */
+.route-inputs-container { display: flex; flex-direction: column; gap: 8px; position: relative; }
+.route-row-inline {
+    display: grid; grid-template-columns: 25px 1fr 25px 32px 32px; align-items: center; gap: 4px;
+    border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 5px; position: relative; z-index: 2;
+}
+.route-row-inline:focus-within { border-bottom-color: var(--neon-gold); }
+.icon-point { text-align: center; font-size: 1.1rem; }
+.input-area { display: flex; align-items: center; position: relative; }
+.input-area input { width: 100%; border: none; outline: none; font-size: 0.95rem; font-family: 'Outfit', sans-serif; padding-right: 25px; }
+.input-area input::placeholder { color: var(--text-muted); font-size: 0.85rem; }
+.btn-clear-input { position: absolute; right: 0; background: transparent; border: none; color: var(--text-muted); font-size: 0.9rem; cursor: pointer; display: none; }
+.btn-grid-action { background: var(--silver-metal); border: 1px solid transparent; border-radius: 8px; color: var(--text-main); font-size: 0.9rem; height: 32px; display: flex; justify-content: center; align-items: center; cursor: pointer; transition: 0.2s; }
+.btn-grid-action:active { background: var(--border-cyber); }
+.route-connector { position: absolute; left: 14px; top: 25px; bottom: 25px; width: 2px; background: rgba(255,255,255,0.1); z-index: 1; }
+
+/* ANIMASI KEDIP (PULSE) UNTUK FOKUS UX PENCARIAN */
+.pulse-border { animation: pulse-border-anim 2s infinite; }
+.pulse-bg { animation: pulse-bg-anim 2s infinite; }
+@keyframes pulse-border-anim {
+    0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+    70% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+@keyframes pulse-bg-anim {
+    0% { background-color: rgba(239, 68, 68, 0.15); }
+    50% { background-color: rgba(239, 68, 68, 0.35); }
+    100% { background-color: rgba(239, 68, 68, 0.15); }
+}
+
+/* Hasil Pencarian & Sticky Button (Mengambang Aman dari Navigasi HP) */
+.search-results-wrapper { position: relative; margin-top: 5px; }
+.search-results-dropdown {
+    position: absolute; top: 0; left: 0; right: 0; background: var(--void-black); border: 1px solid var(--border-cyber);
+    border-radius: 12px; z-index: 100; box-shadow: 0 10px 30px rgba(0,0,0,0.9); max-height: 200px; overflow-y: auto;
+}
+.search-result-item { padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 0.75rem; cursor: pointer; line-height: 1.4; }
+.search-result-item:last-child { border-bottom: none; }
+
+.sticky-continue-btn {
+    position: fixed; bottom: 20px; left: 0; right: 0; padding: 15px;
+    background: linear-gradient(to top, var(--void-black) 80%, transparent);
+    display: flex; justify-content: center; z-index: 200;
+}
+
+/* WADAH PETA & PANEL INLINE (BOTTOM SHEET) */
+.order-panel { 
+    position: absolute; bottom: 0; left: 0; right: 0; z-index: 1000; 
+    border-radius: 24px 24px 0 0; background: var(--hud-bg); 
+    border-top: 2px solid var(--neon-gold); box-shadow: 0 -15px 40px rgba(0,0,0,0.15); 
+    padding: 20px 20px calc(env(safe-area-inset-bottom, 20px) + 20px) 20px; 
+    transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1); 
+}
+.price-display { display: flex; flex-direction: column; }
+.price-label { font-family: 'Space Grotesk', monospace; font-size: 0.65rem; font-weight: 600; color: var(--text-muted); letter-spacing: 1px; }
+.price-value { font-family: 'Space Grotesk', monospace; font-size: 1.35rem; font-weight: 800; color: var(--text-main); }
+
+.btn-float-gps { 
+    position: absolute; top: -65px; right: 15px; z-index: 1000; 
+    width: 45px; height: 45px; border-radius: 50%; 
+    background: var(--card-bg-1); border: 2px solid var(--neon-gold); 
+    color: var(--neon-gold); font-size: 1.2rem; 
+    display: flex; justify-content: center; align-items: center; 
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3); cursor: pointer; transition: all 0.2s;
+}
+
+/* ==========================================
+   PERBAIKAN OVERFLOW & DIMENSI POPUP LEAFLET
+   ========================================== */
+.leaflet-popup-content {
+    width: auto !important;
+    min-width: 220px !important;
+    margin: 12px !important;
+    box-sizing: border-box !important;
+}
+
+.leaflet-popup-content-wrapper {
+    border-radius: 16px !important;
+    padding: 0 !important;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5) !important;
+}
+
+.leaflet-popup-tip-container {
+    margin-top: -2px !important;
+}
+
+/* ==========================================
+   SMART RADAR 2.0 - OVERLAY PANEL & FILTERS
+   ========================================== */
+.radar-smart-panel {
+    position: absolute;
+    top: calc(env(safe-area-inset-top, 20px) + 70px); /* Tepat di bawah tombol refresh atas */
+    left: 0;
+    width: 100%;
+    padding: 0 15px;
+    z-index: 1000;
+    box-sizing: border-box;
+    /* WAJIB: Membiarkan klik tembus ke peta pada ruang yang kosong */
+    pointer-events: none; 
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.radar-loc-box {
+    background: rgba(15, 22, 36, 0.85);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(212, 175, 55, 0.3);
+    border-radius: 12px;
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    pointer-events: auto; /* Mengaktifkan kembali klik khusus untuk box ini */
+    box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+}
+
+.radar-loc-text {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    overflow: hidden;
+}
+
+.radar-loc-text span:first-child {
+    font-size: 0.6rem;
+    color: #ceab6b;
+    font-weight: 900;
+    letter-spacing: 0.5px;
+    margin-bottom: 2px;
+}
+
+.radar-loc-text span:last-child {
+    font-size: 0.75rem;
+    color: #f8fafc;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.radar-filter-container {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    pointer-events: auto; /* Mengaktifkan klik untuk area tombol */
+    padding-bottom: 5px; 
+}
+
+.radar-filter-container::-webkit-scrollbar {
+    display: none;
+}
+
+.radar-chip {
+    flex: 0 0 auto;
+    background: rgba(15, 22, 36, 0.85);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #94a3b8;
+    padding: 6px 16px;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+
+.radar-chip.active {
+    background: rgba(212, 175, 55, 0.15);
+    border-color: #ceab6b;
+    color: #ceab6b;
+}
+
+/* ==========================================
+   PURE CSS VEHICLE PINS (TOP-DOWN VIEW)
+   ANTI-DISTORSI MODE MALAM
+   ========================================== */
+
+/* Perlindungan Mutlak: Mencegah distorsi filter invert() pada pin marker */
+.leaflet-marker-pane > * {
+    filter: none !important;
+}
+
+/* 1. KENDARAAN MOBIL (CAR) */
+.bgn-vehicle-car {
+    width: 22px; height: 38px;
+    background: #f8fafc;
+    border-radius: 6px;
+    position: relative;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.6);
+    border: 1px solid #cbd5e1;
+}
+/* Kaca Depan Mobil */
+.bgn-vehicle-car .windshield {
+    position: absolute; top: 7px; left: 2px; right: 2px; height: 7px;
+    background: #0f172a; border-radius: 2px 2px 0 0;
+}
+/* Kaca Belakang Mobil */
+.bgn-vehicle-car .rear-window {
+    position: absolute; bottom: 7px; left: 3px; right: 3px; height: 5px;
+    background: #0f172a; border-radius: 0 0 2px 2px;
+}
+/* Lampu Kuning (Depan) */
+.bgn-vehicle-car::before {
+    content: ''; position: absolute; top: 2px; left: 3px; right: 3px; height: 2px;
+    background: #fef08a; border-radius: 2px;
+    box-shadow: 0 -2px 6px rgba(254, 240, 138, 0.8);
+}
+/* Lampu Merah (Belakang) */
+.bgn-vehicle-car::after {
+    content: ''; position: absolute; bottom: 2px; left: 3px; right: 3px; height: 3px;
+    background: #ef4444; border-radius: 2px;
+}
+
+/* 2. KENDARAAN MOTOR (BIKE) */
+.bgn-vehicle-bike {
+    width: 14px; height: 28px;
+    background: #1e293b;
+    border-radius: 8px;
+    position: relative;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.6);
+}
+/* Helm Pengendara (Putih & Hijau seperti digambar) */
+.bgn-vehicle-bike .helmet {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 12px; height: 12px;
+    background: #ffffff;
+    border-radius: 50%;
+    border: 2px solid #10b981;
+    box-sizing: border-box;
+    z-index: 2;
+}
+/* Lampu Depan Motor */
+.bgn-vehicle-bike::before {
+    content: ''; position: absolute; top: 1px; left: 50%; transform: translateX(-50%);
+    width: 6px; height: 3px;
+    background: #fef08a; border-radius: 3px 3px 0 0;
+    box-shadow: 0 -2px 6px rgba(254, 240, 138, 0.8);
+}
+
+
+/* ==========================================
+   GLASSMORPHISM POPUP KLIEN & ANTI-DISTORSI
+   ========================================== */
+/* Memaksa pembungkus popup menjadi kaca buram gelap */
+.leaflet-popup-content-wrapper {
+    background: rgba(15, 23, 42, 0.7) !important;
+    backdrop-filter: blur(16px) !important;
+    -webkit-backdrop-filter: blur(16px) !important;
+    border: 1px solid rgba(212, 175, 55, 0.4) !important;
+    border-radius: 20px !important;
+    padding: 0 !important;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.6) !important;
+}
+/* Ujung lancip (Tip) di bawah popup */
+.leaflet-popup-tip {
+    background: rgba(15, 23, 42, 0.8) !important;
+    border: 1px solid rgba(212, 175, 55, 0.4) !important;
+    backdrop-filter: blur(16px) !important;
+}
+/* Melindungi seluruh isi popup dari distorsi warna */
+.leaflet-popup {
+    filter: none !important; 
+}
