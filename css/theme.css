@@ -1,0 +1,261 @@
+/* ==========================================
+   ARSITEKTUR VISUAL BAGANTARA (ENTERPRISE EDITION)
+   ========================================== */
+:root {
+    --void-black: #0F172A; /* Slate Tua: Mewah, tidak mantul/smearing di layar AMOLED */
+    --hud-bg: rgba(15, 23, 42, 0.85); 
+    --silver-metal: rgba(30, 41, 59, 0.8); 
+    
+    --neon-green: #10b981; 
+    --border-cyber: rgba(255, 255, 255, 0.08); /* Garis batas tipis nan elegan */
+    
+    --neon-gold: #D4AF37;
+    --neon-gold-dark: #B48545;
+    --neon-gold-glow: rgba(212, 175, 55, 0.15);
+    
+    --route-line: #3b82f6; 
+    
+    --text-main: #F8FAFC; /* Putih salju: Nyaman dibaca, tidak menyilaukan */
+    --text-muted: #94A3B8;
+    
+    --card-bg-1: #1E293B; /* Kartu solid */
+    --card-bg-2: #1E293B;
+}
+
+body.light-mode {
+    --void-black: #F8FAFC; /* Abu-abu kebiruan terang: Anti-silau di bawah matahari */
+    --hud-bg: rgba(255, 255, 255, 0.85); 
+    --silver-metal: rgba(226, 232, 240, 0.8); 
+    
+    --neon-green: #059669; 
+    --border-cyber: rgba(0, 0, 0, 0.08);
+    
+    --route-line: #1d4ed8; 
+    
+    --text-main: #0F172A; /* Teks navy gelap, lebih elegan dari hitam murni */
+    --text-muted: #64748B;
+    
+    --card-bg-1: #FFFFFF;
+    --card-bg-2: #FFFFFF;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+body, html {
+    width: 100%; height: 100%;
+    background-color: var(--void-black); color: var(--text-main);
+    font-family: 'Outfit', sans-serif; overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+}
+
+.font-tech { font-family: 'Space Grotesk', monospace; }
+.text-neon { color: var(--neon-green); }
+.text-main { color: var(--text-main); }
+.text-muted { color: var(--text-muted); }
+.w-full { width: 100%; }
+.mb-2 { margin-bottom: 8px; } .mb-3 { margin-bottom: 12px; } .mb-4 { margin-bottom: 16px; }
+.mt-2 { margin-top: 8px; } .mt-3 { margin-top: 12px; } .mt-4 { margin-top: 16px; }
+.text-center { text-align: center; }
+.hidden { display: none !important; }
+
+/* EFEK EMAS 3D TAJAM */
+.text-gold { 
+    background: linear-gradient(135deg, #fceabb 0%, var(--neon-gold) 50%, var(--neon-gold-dark) 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 2px 3px var(--neon-gold-glow));
+}
+
+/* KOMPONEN KACA (GLASSMORPHISM) */
+.glass-panel { 
+    background: var(--hud-bg); 
+    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); 
+    border: 1px solid var(--border-cyber); 
+    box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+}
+
+.btn-primary {
+    background: linear-gradient(145deg, var(--silver-metal), var(--hud-bg)); 
+    border: 1px solid var(--neon-green); color: var(--neon-green);
+    font-family: 'Space Grotesk', monospace; font-size: 0.85rem; font-weight: 800; letter-spacing: 1px;
+    padding: 14px; border-radius: 12px; 
+    box-shadow: inset 0 0 8px rgba(16, 185, 129, 0.15), 0 4px 10px rgba(0,0,0,0.1); 
+    transition: all 0.2s; cursor: pointer; display: flex; justify-content: center; align-items: center; gap: 8px;
+}
+.btn-primary:not(:disabled):active { transform: translateY(2px); background: var(--neon-green); color: #fff; }
+.btn-primary:disabled { opacity: 0.4; border-color: var(--text-muted); color: var(--text-muted); box-shadow: none; pointer-events: none; }
+
+.btn-icon { background: none; border: none; color: var(--text-muted); padding: 5px; cursor: pointer; transition: color 0.2s; font-weight: 600; }
+.btn-icon:active { color: var(--neon-green); }
+
+/* WADAH SPA & NAVIGASI */
+.app-container { width: 100vw; height: 100dvh; position: relative; display: flex; flex-direction: column; overflow: hidden; }
+
+.spa-view {
+    position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+    transition: opacity 0.3s ease; z-index: 10;
+    overflow-y: auto; padding-bottom: 90px; 
+}
+#view-map.spa-view {
+    padding-bottom: 25px; /* Injeksi: Menghilangkan ruang kosong (void) di bawah panel Peta */
+}
+#view-search-route.spa-view {
+    padding-bottom: 0px; 
+}
+.active-view { opacity: 1; pointer-events: auto; }
+.hidden-view { opacity: 0; pointer-events: none; }
+
+/* HEADER UTAMA DIHAPUS - DIGANTIKAN OLEH TOMBOL FLOATING KIRI ATAS */
+
+/* DASHBOARD (GRID LAYANAN 3D) */
+.service-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+.service-card {
+    background: linear-gradient(145deg, var(--card-bg-1), var(--card-bg-2));
+    border: 1px solid var(--border-cyber); border-radius: 16px;
+    padding: 25px 10px; display: flex; flex-direction: column; align-items: center;
+    box-shadow: 0 6px 15px rgba(0,0,0,0.1), inset 0 2px 6px rgba(255,255,255,0.15);
+    cursor: pointer; transition: all 0.2s;
+}
+.service-card:active { transform: scale(0.96); border-color: var(--neon-green); }
+.service-card span { font-weight: 900 !important; font-size: 0.95rem !important; letter-spacing: 1.5px; color: var(--text-main); }
+
+/* OVERLAY KACA PREMIUM */
+.captcha-overlay {
+    position: fixed; inset: 0; background: rgba(2, 4, 10, 0.85);
+    backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px); z-index: 9999;
+    display: flex; justify-content: center; align-items: center;
+    transition: opacity 0.3s ease;
+}
+.captcha-overlay.hidden { opacity: 0; pointer-events: none; }
+
+/* NAVIGASI BAWAH */
+.bottom-nav { 
+    position: fixed; bottom: 0; left: 0; right: 0; 
+    z-index: 2000; border-radius: 24px 24px 0 0; padding: 12px 20px 25px 20px; 
+    display: flex; justify-content: space-between; align-items: center; 
+}
+.nav-item { 
+    display: flex; flex-direction: column; align-items: center; gap: 6px; 
+    text-decoration: none; color: var(--text-muted); padding: 8px 25px; border-radius: 16px; 
+    transition: all 0.2s; font-weight: 600;
+}
+.nav-item i { font-size: 1.3rem; }
+.nav-item span { font-size: 0.65rem; letter-spacing: 0.5px; }
+.nav-item.active { background: rgba(212, 175, 55, 0.15); color: var(--neon-gold); }
+.nav-item.active i { 
+    background: linear-gradient(135deg, #fceabb 0%, var(--neon-gold) 50%, var(--neon-gold-dark) 100%); 
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent; 
+}
+
+/* BADGE JARINGAN */
+.badge-network {
+    background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3);
+    color: #10b981; padding: 6px 14px; border-radius: 20px;
+    font-size: 0.65rem; font-family: 'Space Grotesk', monospace; font-weight: bold;
+    display: inline-flex; align-items: center; gap: 8px;
+}
+
+/* ==========================================
+   KOMPONEN MODULAR JASTIP & EXPRESS (SARAF BARU)
+   ========================================== */
+.jastip-item-card {
+    background: var(--card-bg-1);
+    border: 1px solid var(--border-cyber);
+    border-radius: 12px;
+    padding: 15px;
+    margin-bottom: 12px;
+    position: relative;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+}
+.jastip-input-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+    padding-bottom: 8px;
+}
+.jastip-input-row input {
+    width: 100%; background: transparent; border: none; outline: none; 
+    color: var(--text-main); font-family: 'Outfit', sans-serif; font-size: 0.9rem;
+}
+.jastip-input-row input::placeholder { color: var(--text-muted); font-size: 0.8rem; }
+.jastip-action-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 15px;
+}
+.jastip-qty-control {
+    display: flex; align-items: center; gap: 15px;
+    background: var(--void-black); padding: 5px 12px; 
+    border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);
+}
+.btn-qty { 
+    background: transparent; border: none; 
+    color: var(--neon-green); font-size: 1.2rem; 
+    cursor: pointer; padding: 0 5px;
+}
+.btn-qty:active { transform: scale(0.9); }
+.jastip-qty-value { 
+    font-family: 'Space Grotesk', monospace; 
+    font-weight: bold; width: 25px; text-align: center; color: var(--text-main);
+}
+.btn-remove-item { 
+    color: #ef4444; background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.3); padding: 6px 12px;
+    border-radius: 6px; font-size: 0.75rem; font-weight: bold; cursor: pointer;
+}
+
+/* ==========================================
+   TOMBOL MENGAMBANG (FLOATING UI) - REVISI MUTLAK V2
+   ========================================== */
+.btn-floating-action {
+    position: fixed;
+    /* SafeArea Top Inset: Aman dari Poni/Notch Kamera HP */
+    top: calc(env(safe-area-inset-top, 20px) + 15px);
+    z-index: 2500; 
+    background: var(--hud-bg);
+    backdrop-filter: blur(15px);
+    -webkit-backdrop-filter: blur(15px);
+    border: 1px solid var(--border-cyber);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 12px 18px; /* Dibuat proporsional agar mudah disentuh */
+    border-radius: 14px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.1);
+    cursor: pointer;
+    font-family: 'Space Grotesk', monospace;
+    font-weight: 700;
+    font-size: 1.1rem;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.btn-floating-action.hidden {
+    opacity: 0 !important;
+    pointer-events: none !important;
+    transform: translateY(-20px) scale(0.95);
+}
+
+/* Tombol Kembali Tunggal (Kiri Atas) */
+.btn-floating-back {
+    left: 15px;
+    color: var(--text-main);
+    border-color: rgba(255, 255, 255, 0.15);
+}
+
+.btn-floating-back:active {
+    transform: scale(0.92);
+    color: var(--neon-gold);
+    border-color: var(--neon-gold);
+    background: rgba(212, 175, 55, 0.15);
+    box-shadow: 0 0 20px rgba(212, 175, 55, 0.4);
+}
+
+/* ==========================================
+   DINAMIKA TEKS TOMBOL PETA (PINDAH KE JS & JSON)
+   ========================================== */
+/* Teks tombol sekarang dimanipulasi murni melalui JavaScript dari wording.json */
