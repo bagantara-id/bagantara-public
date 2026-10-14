@@ -1,0 +1,83 @@
+{
+  "version": 3,
+  "buttons": {
+    "dropoff": "KUNCI TUJUAN",
+    "pickup": "KUNCI JEMPUT",
+    "pickup_express": "KUNCI PENGAMBILAN",
+    "jastip_store": "KUNCI LOKASI TOKO",
+    "jastip_dropoff": "KUNCI PENGANTARAN",
+    "final": "CARI PENGEMUDI",
+    "loading": "MEMPROSES...",
+    "cancel_search": "Batalkan & Cari Lain"
+  },
+  "map_pins": {
+    "dropoff_default": "TUJUAN (GESER)",
+    "pickup_default": "JEMPUT (GESER)",
+    "notes_default": "Ketik patokan akurat...",
+    "pickup_jastip": "LOKASI TOKO (GESER)",
+    "notes_jastip_store": "Detail alamat toko / patokan...",
+    "dropoff_jastip": "LOKASI PENGANTARAN (GESER)",
+    "notes_jastip_drop": "Detail patokan pengantaran...",
+    "pickup_express": "AMBIL BARANG (GESER)",
+    "dropoff_express": "TUJUAN PENGIRIMAN",
+    "notes_express": "Detail barang & kontak penerima...",
+    "notes_car": "Patokan, jumlah org, & brg bawaan...",
+    "scanning": "MEMINDAI KOORDINAT...",
+    "syncing": "Menyinkronkan data...",
+    "sync_failed": "Gagal memuat detail wilayah."
+  },
+  "radar": {
+    "loading": "MEMUAT DATA...",
+    "disabled": "FITUR NONAKTIF",
+    "gps_denied": "GPS DITOLAK",
+    "system_locked": "SISTEM TERKUNCI"
+  },
+  "mitra_popup": {
+    "no_notes": "Tidak ada catatan khusus.",
+    "driver_car": "DRIVER MOBIL",
+    "driver_bike": "DRIVER MOTOR",
+    "default_vehicle": "Kendaraan Standar",
+    "service_not_set": "Tidak ditentukan",
+    "radius_label": "Radius {val} KM",
+    "safe_zone": "🟢 Jangkauan Aman ({val} KM)",
+    "out_of_zone": "🔴 Di Luar Radius ({val} KM)",
+    "stale_warning": "<i class=\"fa-solid fa-triangle-exclamation\"></i> Tidak update >30 Menit",
+    "btn_prelock": "Pilih Driver",
+    "btn_manual_wa": "<i class=\"fa-brands fa-whatsapp\"></i> Chat Manual",
+    "info_unavailable": "Info tidak tersedia."
+  },
+  "alerts": {
+    "form_incomplete": "Harap lengkapi Nama dan Nomor WhatsApp yang valid.",
+    "uid_not_found": "Silakan pilih pengemudi terlebih dahulu (data tidak ditemukan).",
+    "jastip_warning": "Transaksi akan dilanjutkan melalui WhatsApp Pengemudi. BAGANTARA murni beroperasi sebagai platform perantara gratis tanpa komisi.",
+    "calc_timeout": "Kalkulasi tarif memakan waktu terlalu lama akibat lambatnya koneksi. Silakan coba lagi.",
+    "address_not_found": "Alamat tidak terdeteksi.<br>Gunakan opsi <b>Pilih lewat peta</b>.",
+    "driver_locked_exact": "Driver <b>{nama}</b> dikunci untuk layanan <b>{srv}</b>.<br><br>Silakan tentukan titik jemput dan tujuan Anda.",
+    "driver_locked_multi": "Driver <b>{nama}</b> dikunci.<br><br>Driver ini melayani beberapa jenis pesanan. Silakan pilih layanan di bawah ini.",
+    "require_dropoff": "Harap kunci minimal 1 lokasi tujuan terlebih dahulu.",
+    "require_pickup": "Lokasi penjemputan belum ditentukan.",
+    "require_express_details": "Rincian barang dan Nama Penerima wajib diisi demi keamanan logistik.",
+    "scanning_coords": "Sistem memindai koordinat, mohon tunggu sebentar.",
+    "require_jastip_items": "Harap masukkan minimal 1 barang dengan estimasi harga yang valid.",
+    "service_disabled": "Layanan ini sedang tidak aktif.",
+    "calc_failed": "Gagal memproses data.",
+    "out_of_zone": "Titik penjemputan berada di luar zona operasional yang aktif.",
+    "tariff_empty": "Struktur tarif wilayah belum dikonfigurasi.",
+    "service_empty": "Layanan belum tersedia di wilayah ini.",
+    "gps_denied": "Akses GPS Ditolak / Tidak Ditemukan.",
+    "mic_denied": "Akses Mikrofon ditolak atau gagal dimuat.",
+    "chat_waiting": "⏳ Menunggu persetujuan pengemudi (Maks 3 Menit)...",
+    "chat_cancel_manual": "Pesanan dibatalkan secara mandiri.",
+    "chat_timeout_driver": "Pengemudi tidak merespons dalam 3 menit. Silakan cari mitra lain.",
+    "chat_ticket_rejected": "Tiket ditolak oleh Pengemudi atau kadaluwarsa.",
+    "chat_connected": "✅ Pengemudi terhubung! Pesanan dikunci.",
+    "chat_conn_failed": "Gagal mengirim koneksi ke server.",
+    "chat_driver_unavailable": "Mohon maaf, pengemudi tidak dapat menerima pesanan Anda saat ini. Silakan mencari driver lain.",
+    "chat_ended": "Sesi telah diselesaikan atau diakhiri oleh Pengemudi."
+  },
+  "templates": {
+    "wa_jastip_header": "*🚨 ORDER JASTIP MASUK (BAGANTARA)*\n\n",
+    "wa_driver_greeting_acc": "Halo, saya penumpang Bagantara dengan ID Tiket:",
+    "wa_driver_check_active": "Halo, apakah Anda masih aktif menerima orderan ?"
+  }
+}

@@ -1,0 +1,35 @@
+{
+"version": 4.0,
+"system_controls": {
+"maintenance_mode": false,
+"force_refresh_cache": false
+},
+"radar_mitra": {
+"is_active": true,
+"max_drivers_rendered": 15,
+"polling_type": "interval",
+"polling_interval_sec": 20
+},
+"matchmaking": {
+"max_scan_radius_km": 15.0,
+"max_firestore_reads": 7,
+"enable_boost_zone": true,
+"max_boost_amount": 5000,
+"geohash_precision_level": 5,
+"max_offline_age_minutes": 5
+},
+"data_optimization": {
+"lazy_load_firestore": true,
+"profile_cache_ttl_minutes": 10
+},
+"chat_controls": {
+"media_feature_active": true,
+"driver_response_timeout_ms": 180000,
+"catalog_send_delay_ms": 1200,
+"idle_disconnect_timeout_ms": 300000
+},
+"form_validation": {
+"min_name_length": 3,
+"min_wa_length": 9
+}
+}

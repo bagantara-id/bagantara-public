@@ -1,0 +1,39 @@
+{
+  "version": 2,
+  "paths": {
+    "content_manifest": "./content/manifest.json",
+    "wording": "./data/wording.json",
+    "rules_app": "./data/rules-app.json",
+    "tariffs": "./data/tariffs.json",
+    "zones": "./data/zones.json",
+    "layanan": "./data/layanan.json"
+  },
+  "firebase_core": {
+    "databaseURL": "https://bagantara-core-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "firestore_project_id": "bagantara-core"
+  },
+  "firebase_chat": {
+    "apiKey": "AIzaSyArsaabjy6lr1lzYCBS__1IsjOnhntnzvE",
+    "authDomain": "chatting-88040.firebaseapp.com",
+    "databaseURL": "https://chatting-88040-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "projectId": "chatting-88040",
+    "storageBucket": "chatting-88040.firebasestorage.app",
+    "messagingSenderId": "252383215816",
+    "appId": "1:252383215816:web:e029860517ce1ec77ea5fd"
+  },
+  "cloudinary": {
+    "cloud_name": "wuw7hvjo",
+    "upload_preset": "bagantara-chat"
+  },
+  "map_config": {
+    "tile_layer_url": "https://api.maptiler.com/maps/streets-v4/256/{z}/{x}/{y}.png?key=TYA0KZv2dlhm0BJkEaHe",
+    "max_zoom": 19
+  },
+  "geocoder_api": {
+    "search_url_template": "https://api.maptiler.com/geocoding/{query}.json?key=TYA0KZv2dlhm0BJkEaHe&limit=5",
+    "reverse_url_template": "https://api.maptiler.com/geocoding/{lng},{lat}.json?key=TYA0KZv2dlhm0BJkEaHe"
+  },
+  "routing_api": {
+    "osrm_base_url": "https://router.project-osrm.org/route/v1/driving/"
+  }
+}
