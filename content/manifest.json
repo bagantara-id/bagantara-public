@@ -1,0 +1,25 @@
+{
+  "version": "1.0",
+  "banners": [
+    {
+      "id": "banner-rekrutmen",
+      "type": "image",
+      "src": "./content/banners/rekrutmen.png",
+      "url": "https://wa.me/6282123333305?text=Halo%20Admin%20Bagantara"
+    }
+  ],
+  "about_pages": [
+    {
+      "id": "tentang-kami",
+      "title": "Tentang Bagantara",
+      "icon": "fa-solid fa-rocket",
+      "file": "./content/pages/tentang.html"
+    },
+    {
+      "id": "kebijakan-privasi",
+      "title": "Kebijakan Privasi",
+      "icon": "fa-solid fa-shield-halved",
+      "file": "./content/pages/privasi.html"
+    }
+  ]
+}
