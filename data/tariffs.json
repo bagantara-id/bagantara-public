@@ -1,0 +1,32 @@
+{
+  "version": 4,
+  "currency": "IDR",
+  "zones": {
+    "KDR-PARE-01": {
+      "RIDE": {
+        "base_price": 8000,
+        "min_distance_km": 2.0,
+        "price_per_km": 3000,
+        "multi_stop_fee": 0
+      },
+      "CAR": {
+        "base_price": 15000,
+        "min_distance_km": 2.0,
+        "price_per_km": 4500,
+        "multi_stop_fee": 0
+      },
+      "EXPRESS": {
+        "base_price": 10000,
+        "min_distance_km": 2.0,
+        "price_per_km": 4000,
+        "multi_stop_fee": 0
+      },
+      "JASTIP": {
+        "base_price": 12000,
+        "min_distance_km": 2.0,
+        "price_per_km": 3000,
+        "multi_stop_fee": 4000
+      }
+    }
+  }
+}
