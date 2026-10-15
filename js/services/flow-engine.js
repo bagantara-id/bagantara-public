@@ -1,19 +1,156 @@
 // ==========================================
-// MESIN ALUR TERPUSAT (RIDE, CAR, EXPRESS) - UNIFIED V2.0
-// ARSITEKTUR: SINGLE FILE (DRY), BYPASS PRELOCK SUPPORT
+// MESIN ALUR TERPUSAT (RIDE, CAR, EXPRESS) - BRUTAL DIAMOND V3
+// ARSITEKTUR: AUTO-LOCK GPS PICKUP, DIRECT SEARCH-TO-LOCK, & RECENT PLACES CHIPS
 // ==========================================
 
 window.FlowEngine = {
     _searchTimeout: null,
+    _activeFocusedInputId: 'inputSearchDropoff1',
 
     init: function() {
         console.log(`[FlowEngine] Mesin aktif untuk layanan: ${window.BAGANTARA_SERVICE}`);
+        this._activeFocusedInputId = 'inputSearchDropoff1';
         this.showSearchRoute();
     },
 
     setManualState: function(state) {
         if (state === 'DROPOFF_PIN') this.showDropoffMap();
         if (state === 'PICKUP') this.showPickupMap();
+    },
+
+    // KUNCI KOLOM LANGSUNG DARI HASIL PENCARIAN ATAU CHIP RIWAYAT (0 KLIK PETA, 0 REVERSE GEOCODE)
+    _lockFieldDirectly: function(inputId, title, fLat, fLng, subtitle = '') {
+        const inputEl = document.getElementById(inputId);
+        if (!inputEl) return;
+
+        const lat = parseFloat(fLat);
+        const lng = parseFloat(fLng);
+        if (isNaN(lat) || isNaN(lng)) return;
+
+        window.BAGANTARA_ACTIVE_COORD = { lat: lat, lng: lng };
+        window.TEMPORARY_GEOCODE = title;
+        window.LOCKED_SEARCH_COORD = { lat: lat, lng: lng };
+        window.LOCKED_SEARCH_TEXT = title;
+
+        if (window.GeocoderAPI && typeof window.GeocoderAPI.saveRecentPlace === 'function') {
+            window.GeocoderAPI.saveRecentPlace(title, lat, lng, subtitle);
+        }
+
+        const coordStr = `${lat.toFixed(6)},${lng.toFixed(6)}`;
+
+        if (inputId === 'inputSearchPickup') {
+            const notes = document.getElementById('inputNotesPickup')?.value?.trim() || '-';
+            window.BAGANTARA_PICKUP_COORD = coordStr;
+            window.BAGANTARA_PICKUP_DETAIL = { kec: title, patokan: notes, patokan_awal: notes };
+            inputEl.value = title;
+            if (window.UIManager && window.UIManager.lockSearchField) {
+                window.UIManager.lockSearchField('inputSearchPickup');
+            }
+        } else {
+            const idx = parseInt(inputEl.getAttribute('data-index')) || 1;
+            const notes = idx === 1
+                ? (document.getElementById('inputSearchNotes')?.value?.trim() || '')
+                : (window.BAGANTARA_MULTI_DROPOFFS?.[idx - 1]?.notes || '');
+
+            if (idx === 1) {
+                window.BAGANTARA_DROPOFF_COORD = coordStr;
+                window.BAGANTARA_DROPOFF_DETAIL = { kec: title, patokan: notes };
+            }
+
+            if (!window.BAGANTARA_MULTI_DROPOFFS) window.BAGANTARA_MULTI_DROPOFFS = [];
+            window.BAGANTARA_MULTI_DROPOFFS[idx - 1] = {
+                lat: parseFloat(lat.toFixed(6)),
+                lng: parseFloat(lng.toFixed(6)),
+                name: title,
+                notes: notes
+            };
+
+            inputEl.value = title;
+            if (window.UIManager && window.UIManager.lockSearchField) {
+                window.UIManager.lockSearchField(inputId);
+            }
+        }
+
+        this._renderRecentPlacesChips();
+    },
+
+    // AUTO-LOCK GPS JEMPUT: Hemat 100% buka peta jemput & reverse geocode bagi pengguna di titik berdiri
+    _autoLockGpsPickup: function() {
+        const pickupInput = document.getElementById('inputSearchPickup');
+        if (!pickupInput || window.BAGANTARA_PICKUP_COORD || pickupInput.hasAttribute('readonly')) return;
+
+        const applyGpsCoord = (lat, lng) => {
+            if (window.BAGANTARA_PICKUP_COORD || pickupInput.hasAttribute('readonly') || pickupInput.value.trim().length > 0) return;
+            const labelGps = "📍 Lokasi GPS Saat Ini (Akurat)";
+            const notes = document.getElementById('inputNotesPickup')?.value?.trim() || '-';
+            window.BAGANTARA_ACTIVE_COORD = { lat: lat, lng: lng };
+            window.BAGANTARA_PICKUP_COORD = `${lat.toFixed(6)},${lng.toFixed(6)}`;
+            window.BAGANTARA_PICKUP_DETAIL = { kec: labelGps, patokan: notes, patokan_awal: notes };
+            pickupInput.value = labelGps;
+            if (window.UIManager && window.UIManager.lockSearchField) {
+                window.UIManager.lockSearchField('inputSearchPickup');
+            }
+        };
+
+        if (window.BAGANTARA_ACTIVE_COORD && !isNaN(window.BAGANTARA_ACTIVE_COORD.lat)) {
+            applyGpsCoord(window.BAGANTARA_ACTIVE_COORD.lat, window.BAGANTARA_ACTIVE_COORD.lng);
+        } else if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition((pos) => {
+                applyGpsCoord(pos.coords.latitude, pos.coords.longitude);
+            }, () => {}, { enableHighAccuracy: false, timeout: 6000, maximumAge: 60000 });
+        }
+    },
+
+    // RENDER CHIP RIWAYAT LOKASI TERAKHIR (0 API REQUEST)
+    _renderRecentPlacesChips: function() {
+        const container = document.getElementById('recentPlacesRouteContainer');
+        if (!container || !window.GeocoderAPI || typeof window.GeocoderAPI.getRecentPlaces !== 'function') return;
+
+        const places = window.GeocoderAPI.getRecentPlaces();
+        container.innerHTML = '';
+
+        if (!places || places.length === 0) {
+            container.style.display = 'none';
+            return;
+        }
+
+        container.style.display = 'flex';
+        places.forEach(p => {
+            const chip = document.createElement('button');
+            chip.type = 'button';
+            chip.className = 'recent-place-chip';
+            const iconCls = p.isVault ? 'fa-solid fa-star text-gold' : 'fa-solid fa-clock-rotate-left text-gold';
+            chip.innerHTML = `<i class="${iconCls}"></i> <span>${p.title}</span>`;
+            chip.addEventListener('click', () => {
+                // Tentukan kolom input mana yang sedang aktif atau belum terkunci
+                let targetId = this._activeFocusedInputId || 'inputSearchDropoff1';
+                const targetEl = document.getElementById(targetId);
+
+                if (!targetEl || targetEl.hasAttribute('readonly')) {
+                    const drop1 = document.getElementById('inputSearchDropoff1');
+                    const drop2 = document.getElementById('inputSearchDropoff2');
+                    const drop3 = document.getElementById('inputSearchDropoff3');
+                    const pickup = document.getElementById('inputSearchPickup');
+
+                    if (drop1 && !drop1.hasAttribute('readonly')) targetId = 'inputSearchDropoff1';
+                    else if (drop2 && !drop2.hasAttribute('readonly')) targetId = 'inputSearchDropoff2';
+                    else if (drop3 && !drop3.hasAttribute('readonly')) targetId = 'inputSearchDropoff3';
+                    else if (pickup && !pickup.hasAttribute('readonly')) targetId = 'inputSearchPickup';
+                    else {
+                        // Jika semua sudah terkunci, ganti tujuan utama (Dropoff 1)
+                        if (window.UIManager && window.UIManager.unlockSearchField) {
+                            window.UIManager.unlockSearchField('inputSearchDropoff1');
+                        }
+                        targetId = 'inputSearchDropoff1';
+                    }
+                }
+
+                const resultContainer = document.getElementById('searchRouteResults');
+                if (resultContainer) resultContainer.classList.add('hidden');
+                this._lockFieldDirectly(targetId, p.title, p.lat, p.lng, p.subtitle);
+            });
+            container.appendChild(chip);
+        });
     },
 
     _bindSearchInput: function(inputId, resultContainerId) {
@@ -25,48 +162,60 @@ window.FlowEngine = {
 
         const btnClear = inputEl.parentElement.querySelector('.btn-clear-input');
 
+        inputEl.addEventListener('focus', () => {
+            if (!inputEl.hasAttribute('readonly')) {
+                this._activeFocusedInputId = inputId;
+            }
+        });
+
+        const jalankanPencarian = async (query) => {
+            if (window.UIManager && window.UIManager.renderSearchLoading) {
+                window.UIManager.renderSearchLoading(resultContainerId);
+            }
+
+            let lat = null, lng = null;
+            if (window.BAGANTARA_ACTIVE_COORD) {
+                lat = window.BAGANTARA_ACTIVE_COORD.lat;
+                lng = window.BAGANTARA_ACTIVE_COORD.lng;
+            }
+
+            const features = await window.GeocoderAPI.search(query, lat, lng);
+
+            if (window.UIManager && window.UIManager.renderSearchResults) {
+                window.UIManager.renderSearchResults(resultContainerId, features, (title, fLat, fLng, subtitle) => {
+                    // INOVASI BRUTAL DIAMOND: Langsung kunci di form tanpa lempar paksa ke layar peta!
+                    this._lockFieldDirectly(inputId, title, fLat, fLng, subtitle);
+                });
+            }
+        };
+
         inputEl.addEventListener('input', (e) => {
+            if (inputEl.hasAttribute('readonly')) return;
+            this._activeFocusedInputId = inputId;
             const query = e.target.value.trim();
             if (btnClear) btnClear.style.display = query.length > 0 ? 'block' : 'none';
 
             const resultContainer = document.getElementById(resultContainerId);
             if (query.length < 3) {
+                clearTimeout(this._searchTimeout);
                 if (resultContainer) resultContainer.classList.add('hidden');
                 return;
             }
 
             clearTimeout(this._searchTimeout);
-            this._searchTimeout = setTimeout(async () => {
-                if (window.UIManager && window.UIManager.renderSearchLoading) {
-                    window.UIManager.renderSearchLoading(resultContainerId);
+            // HEMAT KUOTA: Debounce 900ms agar tidak menembak API di setiap huruf
+            this._searchTimeout = setTimeout(() => jalankanPencarian(query), 900); 
+        });
+
+        inputEl.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !inputEl.hasAttribute('readonly')) {
+                e.preventDefault();
+                const query = inputEl.value.trim();
+                if (query.length >= 3) {
+                    clearTimeout(this._searchTimeout);
+                    jalankanPencarian(query);
                 }
-
-                let lat = null, lng = null;
-                if (window.BAGANTARA_ACTIVE_COORD) {
-                    lat = window.BAGANTARA_ACTIVE_COORD.lat;
-                    lng = window.BAGANTARA_ACTIVE_COORD.lng;
-                }
-
-                const features = await window.GeocoderAPI.search(query, lat, lng);
-
-                if (window.UIManager && window.UIManager.renderSearchResults) {
-                    window.UIManager.renderSearchResults(resultContainerId, features, (title, fLat, fLng) => {
-                        inputEl.value = title;
-                        window.BAGANTARA_ACTIVE_COORD = { lat: fLat, lng: fLng };
-                        window.TEMPORARY_GEOCODE = title;
-                        
-                        window.LOCKED_SEARCH_COORD = { lat: fLat, lng: fLng };
-                        window.LOCKED_SEARCH_TEXT = title;
-
-                        if (inputId === 'inputSearchPickup') {
-                            this.setManualState('PICKUP');
-                        } else {
-                            window.BAGANTARA_MAP_TARGET_INDEX = parseInt(inputEl.getAttribute('data-index')) || 1;
-                            this.setManualState('DROPOFF_PIN');
-                        }
-                    });
-                }
-            }, 600); 
+            }
         });
     },
 
@@ -80,6 +229,10 @@ window.FlowEngine = {
 
         this._bindSearchInput('inputSearchPickup', 'searchRouteResults');
         this._bindSearchInput('inputSearchDropoff1', 'searchRouteResults');
+
+        // Auto-lock GPS Pickup jika belum dikunci
+        this._autoLockGpsPickup();
+        this._renderRecentPlacesChips();
 
         window.bindSafeButton('btnProceedToPickup', () => {
             const inputDrop1 = document.getElementById('inputSearchDropoff1');
@@ -97,7 +250,28 @@ window.FlowEngine = {
                 else window.alert(msg);
                 return;
             }
-            this.showPickupMap(); 
+
+            // Sinkronisasi catatan inline dari form sebelum lanjut
+            const notePickupVal = document.getElementById('inputNotesPickup')?.value?.trim() || '-';
+            if (window.BAGANTARA_PICKUP_DETAIL) {
+                window.BAGANTARA_PICKUP_DETAIL.patokan = notePickupVal;
+                window.BAGANTARA_PICKUP_DETAIL.patokan_awal = notePickupVal;
+            }
+
+            const noteDropVal = document.getElementById('inputSearchNotes')?.value?.trim() || '';
+            if (window.BAGANTARA_DROPOFF_DETAIL && noteDropVal) {
+                window.BAGANTARA_DROPOFF_DETAIL.patokan = noteDropVal;
+            }
+            if (window.BAGANTARA_MULTI_DROPOFFS && window.BAGANTARA_MULTI_DROPOFFS[0] && noteDropVal) {
+                window.BAGANTARA_MULTI_DROPOFFS[0].notes = noteDropVal;
+            }
+
+            // INOVASI BRUTAL DIAMOND: Karena Jemput & Tujuan sudah terkunci, langsung loncat ke Detail Express / Final Rute!
+            if (window.BAGANTARA_SERVICE === 'EXPRESS') {
+                this.showExpressDetails();
+            } else {
+                this.showFinal();
+            }
         });
 
         if (window.UIManager && window.UIManager.checkFormReady) window.UIManager.checkFormReady();
@@ -107,10 +281,12 @@ window.FlowEngine = {
         });
 
         const prosesIntersepsiPeta = async (inputId, state) => {
+            clearTimeout(this._searchTimeout);
             const input = document.getElementById(inputId);
             const query = input ? input.value.trim() : '';
             
-            if (input && !input.hasAttribute('readonly') && query.length >= 3) {
+            // Hanya panggil search jika teks belum dikunci dan bukan label GPS default
+            if (input && !input.hasAttribute('readonly') && query.length >= 3 && !query.includes('Lokasi GPS')) {
                 let lat = window.BAGANTARA_ACTIVE_COORD ? window.BAGANTARA_ACTIVE_COORD.lat : null;
                 let lng = window.BAGANTARA_ACTIVE_COORD ? window.BAGANTARA_ACTIVE_COORD.lng : null;
                 
@@ -120,8 +296,8 @@ window.FlowEngine = {
                         if (features && features.length > 0) {
                             const fLat = features[0].geometry.coordinates[1];
                             const fLng = features[0].geometry.coordinates[0];
-                            const props = features[0].properties;
-                            const title = props.name || props.street || props.city || query;
+                            const props = features[0].properties || {};
+                            const title = features[0].text || props.name || props.street || props.city || query;
                             
                             window.BAGANTARA_ACTIVE_COORD = { lat: fLat, lng: fLng };
                             window.TEMPORARY_GEOCODE = title;
@@ -141,8 +317,33 @@ window.FlowEngine = {
         });
 
         window.bindSafeButton('btnSelectViaMap', () => {
-            const targetIdx = window.BAGANTARA_MAP_TARGET_INDEX || 1;
-            prosesIntersepsiPeta(`inputSearchDropoff${targetIdx}`, 'DROPOFF_PIN');
+            window.BAGANTARA_MAP_TARGET_INDEX = 1;
+            prosesIntersepsiPeta('inputSearchDropoff1', 'DROPOFF_PIN');
+        });
+
+        window.bindSafeButton('btnOpenGmapsRouteBridge', () => {
+            if (!window.UIManager || typeof window.UIManager.openGmapsBridgeModal !== 'function') return;
+            let targetId = this._activeFocusedInputId || 'inputSearchDropoff1';
+            const targetEl = document.getElementById(targetId);
+            if (!targetEl || targetEl.hasAttribute('readonly')) {
+                const drop1 = document.getElementById('inputSearchDropoff1');
+                const drop2 = document.getElementById('inputSearchDropoff2');
+                const drop3 = document.getElementById('inputSearchDropoff3');
+                const pickup = document.getElementById('inputSearchPickup');
+                if (drop1 && !drop1.hasAttribute('readonly')) targetId = 'inputSearchDropoff1';
+                else if (drop2 && !drop2.hasAttribute('readonly')) targetId = 'inputSearchDropoff2';
+                else if (drop3 && !drop3.hasAttribute('readonly')) targetId = 'inputSearchDropoff3';
+                else if (pickup && !pickup.hasAttribute('readonly')) targetId = 'inputSearchPickup';
+                else {
+                    window.UIManager.unlockSearchField('inputSearchDropoff1');
+                    targetId = 'inputSearchDropoff1';
+                }
+            }
+            const currVal = document.getElementById(targetId)?.value?.trim() || '';
+            const initQ = currVal.includes('Lokasi GPS') ? '' : currVal;
+            window.UIManager.openGmapsBridgeModal((title, lat, lng, subtitle) => {
+                this._lockFieldDirectly(targetId, title, lat, lng, subtitle);
+            }, initQ);
         });
 
         window.bindSafeButton('btnAddStop', () => {
@@ -152,14 +353,18 @@ window.FlowEngine = {
                     (inputId) => window.UIManager.unlockSearchField(inputId), 
                     (idx) => { 
                         window.BAGANTARA_MAP_TARGET_INDEX = idx;
-                        this.setManualState('DROPOFF_PIN');
+                        prosesIntersepsiPeta(`inputSearchDropoff${idx}`, 'DROPOFF_PIN');
                     },
                     (idx) => { 
                         if (window.BAGANTARA_MULTI_DROPOFFS) window.BAGANTARA_MULTI_DROPOFFS[idx - 1] = null;
                         if (window.UIManager.checkFormReady) window.UIManager.checkFormReady();
                     }
                 );
-                if (newInput) this._bindSearchInput(newInput.id, 'searchRouteResults');
+                if (newInput) {
+                    this._bindSearchInput(newInput.id, 'searchRouteResults');
+                    this._activeFocusedInputId = newInput.id;
+                    newInput.focus();
+                }
             }
         });
 
@@ -184,44 +389,60 @@ window.FlowEngine = {
 
     showDropoffMap: function() {
         window.spaNavigateTo('view-map');
-        document.getElementById('wizardInstruction').innerText = 'TUJUAN';
+        const targetIdx = window.BAGANTARA_MAP_TARGET_INDEX || 1;
+        document.getElementById('wizardInstruction').innerText = targetIdx > 1 ? `TUJUAN KE-${targetIdx}` : 'TUJUAN';
         document.getElementById('inlineAddressPanel').style.display = 'flex';
         document.getElementById('priceArea').classList.add('hidden');
         document.getElementById('notesContainer').classList.remove('hidden');
         
         const inputCatatan = document.getElementById('inputInlineNotes');
         if (inputCatatan) {
-            const formNote = document.getElementById('inputSearchNotes')?.value || '';
+            const existingStopNote = window.BAGANTARA_MULTI_DROPOFFS?.[targetIdx - 1]?.notes;
+            const formNote = targetIdx === 1 ? (document.getElementById('inputSearchNotes')?.value || '') : (existingStopNote || '');
             inputCatatan.value = formNote;
         }
-
-        const btnNotes = document.getElementById('btnToggleNotes');
-        if(btnNotes) btnNotes.style.display = 'none';
 
         const btnNext = document.getElementById('btnWizardNext');
         btnNext.className = 'btn-primary w-full pulse-attention step-dropoff';
         const txtDropoff = window.BGN_CONFIG?.wording?.buttons?.dropoff || "KUNCI TUJUAN";
         btnNext.innerHTML = `<i class="fa-solid fa-crosshairs"></i> <span style="margin-left:4px;">${txtDropoff}</span>`;
 
-        window.bindSafeButton('btnWizardNext', () => {
+        // LAZY REVERSE GEOCODE (TRIPLE-SHIELD): Spatial 75m -> Photon Reverse -> MapTiler
+        window.bindSafeButton('btnWizardNext', async () => {
             const center = window.BAGANTARA_ACTIVE_COORD;
-            const notes = document.getElementById('inputInlineNotes').value || "";
+            const notes = document.getElementById('inputInlineNotes').value.trim() || "";
             
             if (center) {
-                const targetIdx = window.BAGANTARA_MAP_TARGET_INDEX || 1;
+                let resolvedName = window.LOCKED_SEARCH_TEXT || window.TEMPORARY_GEOCODE;
+                if (!window.LOCKED_SEARCH_TEXT && window.GeocoderAPI) {
+                    const currBtn = document.getElementById('btnWizardNext');
+                    if (currBtn) currBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span style="margin-left:4px;">MENGUNCI TITIK...</span>`;
+                    resolvedName = await window.GeocoderAPI.reverseGeocode(center.lat, center.lng);
+                    window.TEMPORARY_GEOCODE = resolvedName;
+                }
+
+                const idx = window.BAGANTARA_MAP_TARGET_INDEX || 1;
                 const coordStr = `${center.lat.toFixed(6)},${center.lng.toFixed(6)}`;
                 
-                if (targetIdx === 1) {
+                if (idx === 1) {
                     window.BAGANTARA_DROPOFF_COORD = coordStr;
-                    window.BAGANTARA_DROPOFF_DETAIL = { kec: window.TEMPORARY_GEOCODE, patokan: notes };
+                    window.BAGANTARA_DROPOFF_DETAIL = { kec: resolvedName, patokan: notes };
+                    const formNoteEl = document.getElementById('inputSearchNotes');
+                    if (formNoteEl && notes) formNoteEl.value = notes;
                 }
+
                 if (!window.BAGANTARA_MULTI_DROPOFFS) window.BAGANTARA_MULTI_DROPOFFS = [];
-                window.BAGANTARA_MULTI_DROPOFFS[targetIdx - 1] = { lat: center.lat, lng: center.lng, name: window.TEMPORARY_GEOCODE, notes: notes };
+                window.BAGANTARA_MULTI_DROPOFFS[idx - 1] = {
+                    lat: parseFloat(center.lat.toFixed(6)),
+                    lng: parseFloat(center.lng.toFixed(6)),
+                    name: resolvedName,
+                    notes: notes
+                };
                 
-                const input = document.getElementById(`inputSearchDropoff${targetIdx}`);
+                const input = document.getElementById(`inputSearchDropoff${idx}`);
                 if (input) { 
-                    input.value = window.TEMPORARY_GEOCODE; 
-                    if (window.UIManager && window.UIManager.lockSearchField) window.UIManager.lockSearchField(`inputSearchDropoff${targetIdx}`); 
+                    input.value = resolvedName; 
+                    if (window.UIManager && window.UIManager.lockSearchField) window.UIManager.lockSearchField(`inputSearchDropoff${idx}`); 
                 }
             }
             this.showSearchRoute();
@@ -246,9 +467,6 @@ window.FlowEngine = {
             inputCatatan.value = formNote;
         }
 
-        const btnNotes = document.getElementById('btnToggleNotes');
-        if(btnNotes) btnNotes.style.display = 'block';
-
         const btnNext = document.getElementById('btnWizardNext');
         btnNext.className = 'btn-primary w-full pulse-attention step-pickup';
         const txtPickup = isExpress 
@@ -256,29 +474,44 @@ window.FlowEngine = {
             : (window.BGN_CONFIG?.wording?.buttons?.pickup || "KUNCI JEMPUT");
         btnNext.innerHTML = `<i class="fa-solid fa-crosshairs"></i> <span style="margin-left:4px;">${txtPickup}</span>`;
 
-        window.bindSafeButton('btnWizardNext', () => {
-            const notes = document.getElementById('inputInlineNotes').value || "-";
+        // LAZY REVERSE GEOCODE SAAT KUNCI TITIK JEMPUT MANUAL DI PETA
+        window.bindSafeButton('btnWizardNext', async () => {
+            const notes = document.getElementById('inputInlineNotes').value.trim() || "-";
+            let resolvedName = window.LOCKED_SEARCH_TEXT || window.TEMPORARY_GEOCODE;
+
             if (window.BAGANTARA_ACTIVE_COORD) {
-                window.BAGANTARA_PICKUP_COORD = `${window.BAGANTARA_ACTIVE_COORD.lat.toFixed(6)},${window.BAGANTARA_ACTIVE_COORD.lng.toFixed(6)}`;
+                const c = window.BAGANTARA_ACTIVE_COORD;
+                window.BAGANTARA_PICKUP_COORD = `${c.lat.toFixed(6)},${c.lng.toFixed(6)}`;
+
+                if (!window.LOCKED_SEARCH_TEXT && window.GeocoderAPI) {
+                    const currBtn = document.getElementById('btnWizardNext');
+                    if (currBtn) currBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span style="margin-left:4px;">MENGUNCI TITIK...</span>`;
+                    resolvedName = await window.GeocoderAPI.reverseGeocode(c.lat, c.lng);
+                    window.TEMPORARY_GEOCODE = resolvedName;
+                }
             }
             
-            window.BAGANTARA_PICKUP_DETAIL = { kec: window.TEMPORARY_GEOCODE, patokan: notes, patokan_awal: notes };
+            window.BAGANTARA_PICKUP_DETAIL = { kec: resolvedName, patokan: notes, patokan_awal: notes };
+            const formNotePickup = document.getElementById('inputNotesPickup');
+            if (formNotePickup && notes !== '-') formNotePickup.value = notes;
             
             const input = document.getElementById('inputSearchPickup');
             if (input) {
-                input.value = window.TEMPORARY_GEOCODE;
+                input.value = resolvedName;
                 if (window.UIManager && window.UIManager.lockSearchField) window.UIManager.lockSearchField('inputSearchPickup');
             }
             
-            // PERCABANGAN LOGIKA LAYANAN (EXPRESS VS RIDE/CAR)
-            if (isExpress) {
+            // Kembali ke form rute jika tujuan belum dikunci, atau langsung lanjut jika tujuan sudah siap
+            if (!window.BAGANTARA_DROPOFF_COORD) {
+                this.showSearchRoute();
+            } else if (isExpress) {
                 this.showExpressDetails();
             } else {
                 this.showFinal();
             }
         });
 
-        window.bindSafeButton('btnBackMap', () => { this.showDropoffMap(); });
+        window.bindSafeButton('btnBackMap', () => { this.showSearchRoute(); });
         window.dispatchEvent(new CustomEvent('wizardState', { detail: 'PICKUP' }));
     },
 
@@ -290,28 +523,29 @@ window.FlowEngine = {
             const recName = document.getElementById('expressReceiverName').value.trim();
             const recPhone = document.getElementById('expressReceiverPhone').value.trim();
             
-            if(!item || !recName) {
+            if (!item || !recName) {
                 const msg = window.BGN_CONFIG?.wording?.alerts?.require_express_details || "Rincian barang dan Nama Penerima wajib diisi demi keamanan logistik.";
                 if (window.UIManager && window.UIManager.alertConfig) window.UIManager.alertConfig('dynamic', msg);
                 else window.alert(msg);
                 return;
             }
 
-            const notes = window.BAGANTARA_PICKUP_DETAIL.patokan_awal;
-            window.BAGANTARA_PICKUP_DETAIL.patokan = `[EXPRESS] Brg: ${item} | Pnrima: ${recName} (${recPhone}) | Lokasi: ${notes}`;
+            const notes = window.BAGANTARA_PICKUP_DETAIL ? window.BAGANTARA_PICKUP_DETAIL.patokan_awal : "-";
+            if (window.BAGANTARA_PICKUP_DETAIL) {
+                window.BAGANTARA_PICKUP_DETAIL.patokan = `[EXPRESS] Brg: ${item} | Pnrima: ${recName}${recPhone ? ' (' + recPhone + ')' : ''} | Lokasi: ${notes}`;
+            }
             
             this.showFinal();
         });
 
-        window.bindSafeButton('btnGlobalBack', () => { this.showPickupMap(); });
+        window.bindSafeButton('btnGlobalBack', () => { this.showSearchRoute(); });
     },
 
     showFinal: function() {
         window.spaNavigateTo('view-map');
         
-        // PERBAIKAN LOGIKA UI: CEK APAKAH ADA DRIVER YANG DI-PRELOCK DARI PETA
         const isPrelocked = window.BAGANTARA_PRELOCKED_DRIVER ? true : false;
-        const driverName = isPrelocked ? window.BAGANTARA_PRELOCKED_DRIVER.nama.split(" ")[0] : ""; // Ambil nama depan saja
+        const driverName = isPrelocked ? window.BAGANTARA_PRELOCKED_DRIVER.nama.split(" ")[0] : "";
         
         document.getElementById('wizardInstruction').innerText = isPrelocked ? 'KONFIRMASI DRIVER' : 'KONFIRMASI';
         document.getElementById('priceArea').classList.remove('hidden');
@@ -319,18 +553,19 @@ window.FlowEngine = {
 
         const btnNext = document.getElementById('btnWizardNext');
         
-        // UBAH WARNA DAN TEKS TOMBOL JIKA PRELOCK AKTIF
         if (isPrelocked) {
             btnNext.className = 'w-full step-final prelocked-btn'; 
-            // Tambahkan inline style agar menonjol jika CSS class prelocked-btn belum ada
             btnNext.style.background = 'linear-gradient(135deg, #10b981, #059669)'; 
             btnNext.style.color = '#fff';
             btnNext.style.border = 'none';
             btnNext.style.boxShadow = '0 4px 15px rgba(16, 185, 129, 0.4)';
-            
             btnNext.innerHTML = `<i class="fa-solid fa-handshake"></i> <span style="margin-left:8px; font-weight:800;">PESAN BERSAMA ${driverName.toUpperCase()}</span>`;
         } else {
             btnNext.className = 'btn-primary w-full step-final';
+            btnNext.style.background = '';
+            btnNext.style.color = '';
+            btnNext.style.border = '';
+            btnNext.style.boxShadow = '';
             const txtFinal = window.BGN_CONFIG?.wording?.buttons?.final || "CARI PENGEMUDI";
             btnNext.innerHTML = `<i class="fa-solid fa-crosshairs"></i> <span style="margin-left:4px;">${txtFinal}</span>`;
         }
@@ -338,16 +573,20 @@ window.FlowEngine = {
         window.bindSafeButton('btnWizardNext', () => {
             if (navigator.vibrate) navigator.vibrate(50);
             const txtLoading = window.BGN_CONFIG?.wording?.buttons?.loading || "MEMPROSES...";
-            btnNext.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span style="margin-left:4px;">${txtLoading}</span>`;
+            const activeBtn = document.getElementById('btnWizardNext');
+            if (activeBtn) activeBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span style="margin-left:4px;">${txtLoading}</span>`;
             
             const eksekusiLanjutan = () => {
-                // BYPASS LOGIKA: Jika prelock, langsung panggil form. Jika tidak, masuk radar driver.
-                if (isPrelocked && window.AegisEngine) {
+                if (activeBtn) {
+                    if (isPrelocked) {
+                        activeBtn.innerHTML = `<i class="fa-solid fa-handshake"></i> <span style="margin-left:8px; font-weight:800;">PESAN BERSAMA ${driverName.toUpperCase()}</span>`;
+                    } else {
+                        const txtFinal = window.BGN_CONFIG?.wording?.buttons?.final || "LANJUTKAN PESANAN";
+                        activeBtn.innerHTML = `<i class="fa-solid fa-crosshairs"></i> <span style="margin-left:4px;">${txtFinal}</span>`;
+                    }
+                }
+                if (window.AegisEngine) {
                     window.AegisEngine.renderMitraList(window.BAGANTARA_SERVICE, window.BAGANTARA_FINAL_PRICE);
-                    // AegisEngine.renderMitraList sudah memiliki logika auto-select form jika PRELOCKED_DRIVER terdeteksi
-                } else {
-                    window.spaNavigateTo('view-drivers');
-                    if (window.AegisEngine) window.AegisEngine.renderMitraList(window.BAGANTARA_SERVICE, window.BAGANTARA_FINAL_PRICE);
                 }
             };
 
@@ -357,14 +596,14 @@ window.FlowEngine = {
                 } else if (percobaan < 20) {
                     setTimeout(() => cekHargaBerkala(percobaan + 1), 500); 
                 } else {
-                    // Kembalikan ke state semula jika gagal
-                    if (isPrelocked) {
-                        btnNext.innerHTML = `<i class="fa-solid fa-handshake"></i> <span style="margin-left:8px; font-weight:800;">PESAN BERSAMA ${driverName.toUpperCase()}</span>`;
-                    } else {
-                        const txtFinal = window.BGN_CONFIG?.wording?.buttons?.final || "CARI PENGEMUDI";
-                        btnNext.innerHTML = `<i class="fa-solid fa-crosshairs"></i> <span style="margin-left:4px;">${txtFinal}</span>`;
+                    if (activeBtn) {
+                        if (isPrelocked) {
+                            activeBtn.innerHTML = `<i class="fa-solid fa-handshake"></i> <span style="margin-left:8px; font-weight:800;">PESAN BERSAMA ${driverName.toUpperCase()}</span>`;
+                        } else {
+                            const txtFinal = window.BGN_CONFIG?.wording?.buttons?.final || "CARI PENGEMUDI";
+                            activeBtn.innerHTML = `<i class="fa-solid fa-crosshairs"></i> <span style="margin-left:4px;">${txtFinal}</span>`;
+                        }
                     }
-                    
                     const txtTimeout = window.BGN_CONFIG?.wording?.alerts?.calc_timeout || "Kalkulasi tarif memakan waktu terlalu lama. Silakan coba lagi.";
                     if (window.UIManager && window.UIManager.alertConfig) window.UIManager.alertConfig('calc_timeout', txtTimeout);
                     else window.alert(txtTimeout);
@@ -374,12 +613,11 @@ window.FlowEngine = {
             cekHargaBerkala();
         });
 
-        // Saraf Mundur
         window.bindSafeButton('btnBackMap', () => { 
             if (window.BAGANTARA_SERVICE === 'EXPRESS') {
                 this.showExpressDetails();
             } else {
-                this.showPickupMap(); 
+                this.showSearchRoute(); 
             }
         });
 
