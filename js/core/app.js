@@ -1,6 +1,6 @@
 // ==========================================
-// MESIN UTAMA: NAVIGASI SPA & ORKESTRATOR TEMA (V6 DRIVER-FIRST CYBER-LUXURY)
-// ARSITEKTUR: SINGLE-ENTRY DRIVER CATALOG HOME & 3-TAB SYMMETRIC NAV
+// MESIN UTAMA: NAVIGASI SPA & ORKESTRATOR TEMA (V8 DRIVER-FIRST CYBER-LUXURY)
+// ARSITEKTUR: SINGLE-ENTRY DRIVER CATALOG HOME & 3-TAB SYMMETRIC NAV (ZERO FALLBACK)
 // ==========================================
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -19,6 +19,9 @@ document.addEventListener('DOMContentLoaded', () => {
         btnPulihkanChat.addEventListener('click', () => {
             const panel = document.getElementById('panel-komunikasi-utama');
             if (panel) {
+                if (window.ChatHandshake && typeof window.ChatHandshake.aktifkanKoneksiChat === 'function') {
+                    window.ChatHandshake.aktifkanKoneksiChat();
+                }
                 panel.style.display = 'flex';
                 panel.style.animation = 'none';
                 void panel.offsetWidth;
@@ -68,17 +71,19 @@ document.addEventListener('DOMContentLoaded', () => {
             if (manualTheme === 'light') document.body.classList.add('light-mode');
             else document.body.classList.remove('light-mode');
         } else {
+            const sysCtrl = window.BGN_CONFIG?.rules_app?.system_controls;
+            const startHour = sysCtrl ? sysCtrl.night_mode_start_hour : new Date().getHours();
+            const endHour = sysCtrl ? sysCtrl.night_mode_end_hour : new Date().getHours();
             const hour = new Date().getHours();
             const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-            if (hour >= 18 || hour < 6 || prefersDark) document.body.classList.remove('light-mode');
+            if (hour >= startHour || hour < endHour || prefersDark) document.body.classList.remove('light-mode');
             else document.body.classList.add('light-mode');
         }
         applyThemeIcon();
     }
     
-    updateTheme();
     window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { 
-        if(manualTheme === null) updateTheme(); 
+        if (manualTheme === null) updateTheme(); 
     });
 
     if (btnThemeToggle) {
@@ -116,9 +121,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const settingsOverlay = document.getElementById('settings-overlay');
     
     function resetNavs() {
-        if(navHome) navHome.classList.remove('active');
-        if(navAbout) navAbout.classList.remove('active');
-        if(navSettings) navSettings.classList.remove('active');
+        if (navHome) navHome.classList.remove('active');
+        if (navAbout) navAbout.classList.remove('active');
+        if (navSettings) navSettings.classList.remove('active');
     }
 
     if (navHome) {
@@ -153,29 +158,30 @@ document.addEventListener('DOMContentLoaded', () => {
             e.preventDefault();
             resetNavs();
             navSettings.classList.add('active');
-            if(settingsOverlay) settingsOverlay.classList.remove('hidden');
+            if (settingsOverlay) settingsOverlay.classList.remove('hidden');
         });
     }
 
     document.getElementById('btnBackFromAbout')?.addEventListener('click', () => {
         resetNavs();
-        if(navHome) navHome.classList.add('active');
+        if (navHome) navHome.classList.add('active');
         window.spaNavigateTo('view-mitra-map');
     });
 
     document.getElementById('btnCloseSettings')?.addEventListener('click', () => {
-        if(settingsOverlay) settingsOverlay.classList.add('hidden');
+        if (settingsOverlay) settingsOverlay.classList.add('hidden');
         resetNavs();
-        if(navHome) navHome.classList.add('active');
+        if (navHome) navHome.classList.add('active');
     });
 
     // 4. GERBANG GEOSPASIAL & SAKELAR LAYANAN PADA KATALOG BERANDA
     function initServiceFlagsOnCatalog() {
         try {
-            const services = window.BGN_CONFIG?.layanan?.services || {};
+            const services = window.BGN_CONFIG.layanan.services;
+            const defaultFilter = window.BGN_CONFIG.rules_app.radar_mitra.default_filter;
             document.querySelectorAll('#radarFilterContainer .radar-chip').forEach(chip => {
                 const flt = chip.getAttribute('data-filter');
-                if (flt && flt !== 'ALL' && services[flt] === false) {
+                if (flt && flt !== defaultFilter && services[flt] === false) {
                     chip.style.display = 'none';
                 }
             });
@@ -184,18 +190,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function initGeoGatekeeper() {
         try {
-            const zoneData = window.BGN_CONFIG?.zones || {};
+            const zoneData = window.BGN_CONFIG.zones;
+            const mapRouting = window.BGN_CONFIG.rules_app.map_and_routing;
+            const earthR = window.BGN_CONFIG.rules_app.system_controls.earth_radius_km;
             window.BAGANTARA_ZONE_LOCKED = false;
 
             const getHaversine = (lat1, lon1, lat2, lon2) => {
                 if (window.AegisEngine && typeof window.AegisEngine.calculateDistance === 'function') {
                     return window.AegisEngine.calculateDistance(lat1, lon1, lat2, lon2);
                 }
-                const R = 6371; 
                 const dLat = (lat2 - lat1) * Math.PI / 180;
                 const dLon = (lon2 - lon1) * Math.PI / 180;
-                const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
-                return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
+                const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+                return earthR * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
             };
 
             if (navigator.geolocation) {
@@ -206,7 +213,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     window.BAGANTARA_ACTIVE_COORD = { lat: userLat, lng: userLng };
 
-                    if (zoneData.active_zones && Array.isArray(zoneData.active_zones)) {
+                    if (zoneData && Array.isArray(zoneData.active_zones)) {
                         for (const zone of zoneData.active_zones) {
                             if (zone.is_open) {
                                 const dist = getHaversine(userLat, userLng, zone.center.lat, zone.center.lng);
@@ -227,7 +234,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (window.UIManager && typeof window.UIManager.initMitraCatalog === 'function') {
                         window.UIManager.initMitraCatalog();
                     }
-                }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 });
+                }, {
+                    enableHighAccuracy: false,
+                    timeout: mapRouting.gps_gatekeeper_timeout_ms,
+                    maximumAge: mapRouting.gps_max_age_ms
+                });
             } else {
                 if (window.UIManager && typeof window.UIManager.initMitraCatalog === 'function') {
                     window.UIManager.initMitraCatalog();
@@ -256,6 +267,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     const bootApplication = () => {
+        updateTheme();
         initServiceFlagsOnCatalog();
         initGeoGatekeeper();
         window.dispatchEvent(new Event('app_ready'));
@@ -264,6 +276,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (window.ConfigManager && window.ConfigManager.isLoaded) {
         bootApplication();
     } else {
-        window.addEventListener('bgn_config_loaded', bootApplication);
+        window.addEventListener('bgn_config_loaded', bootApplication, { once: true });
     }
 });

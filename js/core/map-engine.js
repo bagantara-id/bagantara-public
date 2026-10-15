@@ -1,5 +1,5 @@
 // ==========================================
-// MESIN PEMETAAN RUTE PENUMPANG (MAPTILER STREETS-V4 + QUOTA SHIELD)
+// MESIN PEMETAAN RUTE PENUMPANG (MAPTILER STREETS-V4 + QUOTA SHIELD - ZERO FALLBACK)
 // ARSITEKTUR: LAZY INIT, IDLE-ONLY TILE FETCH, ZERO-ANIMATION JUMP, AUTO-FAILOVER
 // ==========================================
 
@@ -8,8 +8,8 @@ window.MapEngine = {
     wizardLayer: null,
     osrmAbortController: null,
     _mainTileLoaded: false,
-    _lastUserLat: -7.768049,
-    _lastUserLng: 112.196514,
+    _lastUserLat: null,
+    _lastUserLng: null,
     
     activeMode: 'DROPOFF',
     pickupCoords: null,
@@ -28,27 +28,27 @@ window.MapEngine = {
 
     _ensureTileLayer: function(mapInstance) {
         if (!mapInstance || this._mainTileLoaded) return;
-        const defaultUrl = "https://api.maptiler.com/maps/streets-v4/256/{z}/{x}/{y}.png?key=BaHHqDBvf8SyvIxFtx4r";
-        const fallbackUrl = window.BGN_CONFIG?.settings?.map_config?.fallback_tile_url || "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
-        const mapUrl = window.BGN_CONFIG?.settings?.map_config?.tile_layer_url || defaultUrl;
-        const mapZoom = window.BGN_CONFIG?.settings?.map_config?.max_zoom || 19;
+        const mapCfg = window.BGN_CONFIG.settings.map_config;
+        const mapUrl = mapCfg.tile_layer_url;
+        const fallbackUrl = mapCfg.fallback_tile_url;
+        const mapZoom = mapCfg.max_zoom;
+        const tileSize = mapCfg.tile_size;
+        const keepBuffer = mapCfg.keep_buffer;
+        const maxErrors = mapCfg.max_tile_errors;
 
-        // KONFIGURASI HEMAT KUOTA MAPTILER:
-        // updateWhenIdle: true -> Hanya muat tile setelah jari berhenti menggeser peta
-        // updateWhenZooming: false -> Cegah request tile transisi saat zoom berubah
         const tileLayer = L.tileLayer(mapUrl, {
             maxZoom: mapZoom,
-            tileSize: 256,
+            tileSize: tileSize,
             updateWhenIdle: true,
             updateWhenZooming: false,
-            keepBuffer: 2
+            keepBuffer: keepBuffer
         }).addTo(mapInstance);
 
         let errorCount = 0;
         let usingFallback = false;
         tileLayer.on('tileerror', () => {
             errorCount++;
-            if (!usingFallback && errorCount >= 4) {
+            if (!usingFallback && errorCount >= maxErrors) {
                 usingFallback = true;
                 console.warn("[MapEngine] Beralih ke Basemap Cadangan...");
                 tileLayer.setUrl(fallbackUrl);
@@ -61,6 +61,9 @@ window.MapEngine = {
     setupEventListeners: function() {
         window.addEventListener('wizardState', (e) => this.handleWizardState(e.detail));
         window.addEventListener('bgn_config_loaded', () => {
+            const defCenter = window.BGN_CONFIG.settings.map_config.default_center;
+            if (this._lastUserLat === null) this._lastUserLat = defCenter.lat;
+            if (this._lastUserLng === null) this._lastUserLng = defCenter.lng;
             if (this.mainMap) this._ensureTileLayer(this.mainMap);
         });
         
@@ -68,11 +71,11 @@ window.MapEngine = {
         if (btnMyGPS) {
             btnMyGPS.addEventListener('click', () => {
                 if (navigator.geolocation && this.mainMap) {
+                    const focusZoom = window.BGN_CONFIG.settings.map_config.focus_zoom;
                     navigator.geolocation.getCurrentPosition((pos) => {
                         window.LOCKED_SEARCH_COORD = null;
                         window.LOCKED_SEARCH_TEXT = null;
-                        // Gunakan setView tanpa animasi terbang jauh agar tidak memuat tile sepanjang lintasan
-                        this.mainMap.setView([pos.coords.latitude, pos.coords.longitude], 17, { animate: false });
+                        this.mainMap.setView([pos.coords.latitude, pos.coords.longitude], focusZoom, { animate: false });
                     });
                 }
             });
@@ -88,15 +91,19 @@ window.MapEngine = {
         const mapContainer = document.getElementById('map-container');
         if (!mapContainer) return;
 
-        let startLat = window.BAGANTARA_ACTIVE_COORD ? window.BAGANTARA_ACTIVE_COORD.lat : -7.768049;
-        let startLng = window.BAGANTARA_ACTIVE_COORD ? window.BAGANTARA_ACTIVE_COORD.lng : 112.196514;
+        const mapCfg = window.BGN_CONFIG.settings.map_config;
+        const defCenter = mapCfg.default_center;
+        const defaultZoom = mapCfg.default_zoom;
+
+        let startLat = window.BAGANTARA_ACTIVE_COORD ? window.BAGANTARA_ACTIVE_COORD.lat : defCenter.lat;
+        let startLng = window.BAGANTARA_ACTIVE_COORD ? window.BAGANTARA_ACTIVE_COORD.lng : defCenter.lng;
 
         this.mainMap = L.map('map-container', {
             zoomControl: false,
             attributionControl: false,
             fadeAnimation: true,
-            zoomAnimation: false // Hemat kuota tile transisi zoom
-        }).setView([startLat, startLng], 16);
+            zoomAnimation: false
+        }).setView([startLat, startLng], defaultZoom);
         
         if (!window.BAGANTARA_ACTIVE_COORD) {
             window.BAGANTARA_ACTIVE_COORD = { lat: startLat, lng: startLng };
@@ -110,7 +117,7 @@ window.MapEngine = {
                 this._lastUserLat = pos.coords.latitude;
                 this._lastUserLng = pos.coords.longitude;
                 if (!window.LOCKED_SEARCH_COORD) {
-                    this.mainMap.setView([pos.coords.latitude, pos.coords.longitude], 16, { animate: false });
+                    this.mainMap.setView([pos.coords.latitude, pos.coords.longitude], defaultZoom, { animate: false });
                     window.BAGANTARA_ACTIVE_COORD = { lat: pos.coords.latitude, lng: pos.coords.longitude };
                 }
             }, () => {});
@@ -133,11 +140,10 @@ window.MapEngine = {
 
         this.mainMap.on('movestart', () => {
             mapContainer.classList.add('map-is-moving');
-            this.pinElements.label.innerText = window.BGN_CONFIG?.wording?.map_pins?.scanning || "MEMINDAI KOORDINAT...";
+            this.pinElements.label.innerText = window.BGN_CONFIG.wording.map_pins.scanning;
             window.dispatchEvent(new Event('mapIsMoving')); 
         });
 
-        // ZERO REVERSE GEOCODE SAAT GESER PETA: Hemat >90% Kuota & Instan 0ms
         this.mainMap.on('moveend', () => {
             mapContainer.classList.remove('map-is-moving');
             if (navigator.vibrate) navigator.vibrate(30); 
@@ -146,11 +152,13 @@ window.MapEngine = {
             window.BAGANTARA_ACTIVE_COORD = { lat: center.lat, lng: center.lng };
             this.updatePinVisual(this.activeMode); 
             
+            const toleranceKm = window.BGN_CONFIG.rules_app.map_and_routing.search_lock_tolerance_km;
+            const pointPrefix = window.BGN_CONFIG.wording.map_pins.map_point_prefix;
+
             let isLockedBySearch = false;
             if (window.LOCKED_SEARCH_COORD && window.LOCKED_SEARCH_TEXT) {
                 const distanceShifted = this.getHaversineDistance(center.lat, center.lng, window.LOCKED_SEARCH_COORD.lat, window.LOCKED_SEARCH_COORD.lng);
-                // Toleransi geser presisi rumah hingga 100 meter (0.1 KM) tetap mempertahankan nama hasil ketikan
-                if (distanceShifted <= 0.1) isLockedBySearch = true;
+                if (distanceShifted <= toleranceKm) isLockedBySearch = true;
             }
             
             if (isLockedBySearch) {
@@ -158,7 +166,7 @@ window.MapEngine = {
             } else {
                 window.LOCKED_SEARCH_TEXT = null;
                 window.LOCKED_SEARCH_COORD = null;
-                window.TEMPORARY_GEOCODE = `Titik Peta (${center.lat.toFixed(5)}, ${center.lng.toFixed(5)})`;
+                window.TEMPORARY_GEOCODE = `${pointPrefix} (${center.lat.toFixed(5)}, ${center.lng.toFixed(5)})`;
             }
 
             const liveAddress = document.getElementById('liveAddressTitle');
@@ -175,27 +183,28 @@ window.MapEngine = {
         const pinTypeIcon = document.getElementById('pinTypeIcon');
         const inputInlineNotes = document.getElementById('inputInlineNotes');
 
-        const service = window.BAGANTARA_SERVICE || 'RIDE';
-        const wMap = window.BGN_CONFIG?.wording?.map_pins || {};
+        const wPopup = window.BGN_CONFIG.wording.mitra_popup;
+        const service = window.BAGANTARA_SERVICE ? window.BAGANTARA_SERVICE : wPopup.default_service;
+        const wMap = window.BGN_CONFIG.wording.map_pins;
         
-        let labelDropoff = wMap.dropoff_default || 'TUJUAN (GESER)';
-        let labelPickup = wMap.pickup_default || 'JEMPUT (GESER)';
-        let placeholderNotes = wMap.notes_default || 'Ketik patokan akurat...';
+        let labelDropoff = wMap.dropoff_default;
+        let labelPickup = wMap.pickup_default;
+        let placeholderNotes = wMap.notes_default;
 
         if (service === 'JASTIP') {
             if (mode === 'JASTIP_STORE') {
-                labelPickup = wMap.pickup_jastip || 'LOKASI TOKO (GESER)';
-                placeholderNotes = wMap.notes_jastip_store || 'Detail alamat toko / patokan...';
+                labelPickup = wMap.pickup_jastip;
+                placeholderNotes = wMap.notes_jastip_store;
             } else {
-                labelDropoff = wMap.dropoff_jastip || 'LOKASI PENGANTARAN (GESER)';
-                placeholderNotes = wMap.notes_jastip_drop || 'Detail patokan pengantaran...';
+                labelDropoff = wMap.dropoff_jastip;
+                placeholderNotes = wMap.notes_jastip_drop;
             }
         } else if (service === 'EXPRESS') {
-            labelPickup = wMap.pickup_express || 'AMBIL BARANG (GESER)';
-            labelDropoff = wMap.dropoff_express || 'TUJUAN PENGIRIMAN';
-            placeholderNotes = wMap.notes_express || 'Detail barang & kontak penerima...';
+            labelPickup = wMap.pickup_express;
+            labelDropoff = wMap.dropoff_express;
+            placeholderNotes = wMap.notes_express;
         } else if (service === 'CAR') {
-            placeholderNotes = wMap.notes_car || 'Patokan, jumlah org, & brg bawaan...';
+            placeholderNotes = wMap.notes_car;
         }
 
         if (mode === 'DROPOFF') {
@@ -203,7 +212,7 @@ window.MapEngine = {
             this.pinElements.label.style.borderColor = '#ef4444'; 
             this.pinElements.label.style.color = '#ef4444';
             mapContainer.classList.remove('pickup-mode', 'jastip-store-mode'); 
-            if(pinTypeIcon) { pinTypeIcon.className = 'fa-solid fa-location-dot'; pinTypeIcon.style.color = '#ef4444'; }
+            if (pinTypeIcon) { pinTypeIcon.className = 'fa-solid fa-location-dot'; pinTypeIcon.style.color = '#ef4444'; }
             this.pinElements.marker.style.background = '#ef4444';
             this.pinElements.marker.style.boxShadow = '0 0 10px #ef4444';
         } else if (mode === 'JASTIP_STORE') {
@@ -212,7 +221,7 @@ window.MapEngine = {
             this.pinElements.label.style.color = '#3b82f6';
             mapContainer.classList.remove('pickup-mode');
             mapContainer.classList.add('jastip-store-mode'); 
-            if(pinTypeIcon) { pinTypeIcon.className = 'fa-solid fa-store'; pinTypeIcon.style.color = '#3b82f6'; }
+            if (pinTypeIcon) { pinTypeIcon.className = 'fa-solid fa-store'; pinTypeIcon.style.color = '#3b82f6'; }
             this.pinElements.marker.style.background = '#3b82f6';
             this.pinElements.marker.style.boxShadow = '0 0 10px #3b82f6';
         } else {
@@ -221,7 +230,7 @@ window.MapEngine = {
             this.pinElements.label.style.color = '#bd8c11';
             mapContainer.classList.remove('jastip-store-mode');
             mapContainer.classList.add('pickup-mode'); 
-            if(pinTypeIcon) { pinTypeIcon.className = 'fa-solid fa-location-crosshairs'; pinTypeIcon.style.color = '#bd8c11'; }
+            if (pinTypeIcon) { pinTypeIcon.className = 'fa-solid fa-location-crosshairs'; pinTypeIcon.style.color = '#bd8c11'; }
             this.pinElements.marker.style.background = '#bd8c11';
             this.pinElements.marker.style.boxShadow = '0 0 10px #bd8c11';
         }
@@ -248,10 +257,10 @@ window.MapEngine = {
     },
 
     handleWizardState: function(state) {
-        // LAZY MAP SHIELD: Jangan inisialisasi peta atau muat tile saat pengguna masih di form ketik teks!
         if (state === 'SEARCH_ROUTE') return;
 
         this.initMainMap();
+        const focusZoom = window.BGN_CONFIG.settings.map_config.focus_zoom;
 
         let isJumpingFromSearch = false;
         if (window.BAGANTARA_ACTIVE_COORD && window.TEMPORARY_GEOCODE && window.LOCKED_SEARCH_COORD) {
@@ -266,10 +275,10 @@ window.MapEngine = {
             this.pinElements.container.style.display = 'flex';
             this.updatePinVisual('DROPOFF');
             
-            const targetIdx = window.BAGANTARA_MAP_TARGET_INDEX || 1;
+            const targetIdx = window.BAGANTARA_MAP_TARGET_INDEX ? window.BAGANTARA_MAP_TARGET_INDEX : 1;
             let existingCoord = null;
             
-            const multi = window.BAGANTARA_MULTI_DROPOFFS || [];
+            const multi = window.BAGANTARA_MULTI_DROPOFFS ? window.BAGANTARA_MULTI_DROPOFFS : [];
             multi.forEach((m, idx) => {
                 if (m && (idx + 1) !== targetIdx && !isNaN(parseFloat(m.lat)) && !isNaN(parseFloat(m.lng))) {
                     this.dropStaticMarker('DROPOFF', { lat: parseFloat(m.lat), lng: parseFloat(m.lng) }, (idx + 1).toString());
@@ -280,7 +289,7 @@ window.MapEngine = {
             else if (multi && multi[targetIdx - 1]) existingCoord = `${multi[targetIdx - 1].lat},${multi[targetIdx - 1].lng}`;
             
             if (isJumpingFromSearch) {
-                this.mainMap.setView([window.LOCKED_SEARCH_COORD.lat, window.LOCKED_SEARCH_COORD.lng], 17, { animate: false });
+                this.mainMap.setView([window.LOCKED_SEARCH_COORD.lat, window.LOCKED_SEARCH_COORD.lng], focusZoom, { animate: false });
                 setTimeout(() => { this.mainMap.invalidateSize(); }, 100);
             } else {
                 this.flyToCoordinate(existingCoord);
@@ -291,7 +300,7 @@ window.MapEngine = {
             this.pinElements.container.style.display = 'flex';
             this.updatePinVisual(state); 
 
-            const multi = window.BAGANTARA_MULTI_DROPOFFS || [];
+            const multi = window.BAGANTARA_MULTI_DROPOFFS ? window.BAGANTARA_MULTI_DROPOFFS : [];
             if (multi.length > 0) {
                 multi.forEach((m, idx) => {
                     if (m && !isNaN(parseFloat(m.lat)) && !isNaN(parseFloat(m.lng))) {
@@ -308,7 +317,7 @@ window.MapEngine = {
             setTimeout(() => { this.mainMap.invalidateSize(); }, 100);
             
             if (isJumpingFromSearch) {
-                this.mainMap.setView([window.LOCKED_SEARCH_COORD.lat, window.LOCKED_SEARCH_COORD.lng], 17, { animate: false });
+                this.mainMap.setView([window.LOCKED_SEARCH_COORD.lat, window.LOCKED_SEARCH_COORD.lng], focusZoom, { animate: false });
             } else {
                 this.flyToCoordinate(window.BAGANTARA_PICKUP_COORD);
             }
@@ -325,7 +334,7 @@ window.MapEngine = {
                 }
             }
 
-            const multi = window.BAGANTARA_MULTI_DROPOFFS || [];
+            const multi = window.BAGANTARA_MULTI_DROPOFFS ? window.BAGANTARA_MULTI_DROPOFFS : [];
             if (multi.length > 0) {
                 multi.forEach((m, idx) => {
                     if (m && !isNaN(parseFloat(m.lat)) && !isNaN(parseFloat(m.lng))) {
@@ -344,18 +353,18 @@ window.MapEngine = {
         }
     },
 
-    // ZERO-ANIMATION TELEPORT: Menggunakan setView({ animate: false }) agar tidak menyedot puluhan tile lintasan
     flyToCoordinate: function(coordStr) {
+        const defaultZoom = window.BGN_CONFIG.settings.map_config.default_zoom;
         if (coordStr) {
             const [lat, lng] = coordStr.split(',');
             if (!isNaN(parseFloat(lat)) && !isNaN(parseFloat(lng))) {
-                this.mainMap.setView([parseFloat(lat), parseFloat(lng)], 16, { animate: false });
+                this.mainMap.setView([parseFloat(lat), parseFloat(lng)], defaultZoom, { animate: false });
             }
         } else if (window.BAGANTARA_ACTIVE_COORD) {
-            this.mainMap.setView([window.BAGANTARA_ACTIVE_COORD.lat, window.BAGANTARA_ACTIVE_COORD.lng], 16, { animate: false });
+            this.mainMap.setView([window.BAGANTARA_ACTIVE_COORD.lat, window.BAGANTARA_ACTIVE_COORD.lng], defaultZoom, { animate: false });
         } else if (navigator.geolocation && !this.dropoffCoords) {
             navigator.geolocation.getCurrentPosition((pos) => { 
-                this.mainMap.setView([pos.coords.latitude, pos.coords.longitude], 16, { animate: false }); 
+                this.mainMap.setView([pos.coords.latitude, pos.coords.longitude], defaultZoom, { animate: false }); 
             });
         }
     },
@@ -364,24 +373,26 @@ window.MapEngine = {
         if (window.AegisEngine && typeof window.AegisEngine.calculateDistance === 'function') {
             return window.AegisEngine.calculateDistance(lat1, lon1, lat2, lon2);
         }
-        const R = 6371; 
+        const R = window.BGN_CONFIG.rules_app.system_controls.earth_radius_km;
         const dLat = (lat2 - lat1) * Math.PI / 180;
         const dLon = (lon2 - lon1) * Math.PI / 180;
-        const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         return R * c;
     },
 
     calculatePrecisionRouteMulti: function(startPoint) {
         if (this._routeTimeout) clearTimeout(this._routeTimeout);
+        const mapRouting = window.BGN_CONFIG.rules_app.map_and_routing;
+        const debounceMs = mapRouting.route_calc_debounce_ms;
         
         this._routeTimeout = setTimeout(async () => {
-            const multi = window.BAGANTARA_MULTI_DROPOFFS || [];
+            const multi = window.BAGANTARA_MULTI_DROPOFFS ? window.BAGANTARA_MULTI_DROPOFFS : [];
             let segments = [startPoint];
             
             if (multi.length > 0) {
                 multi.forEach(m => { 
-                    if(m && !isNaN(parseFloat(m.lat)) && !isNaN(parseFloat(m.lng))) segments.push({ lat: parseFloat(m.lat), lng: parseFloat(m.lng) }); 
+                    if (m && !isNaN(parseFloat(m.lat)) && !isNaN(parseFloat(m.lng))) segments.push({ lat: parseFloat(m.lat), lng: parseFloat(m.lng) }); 
                 });
             } else if (window.BAGANTARA_DROPOFF_COORD) {
                 const [lat, lng] = window.BAGANTARA_DROPOFF_COORD.split(',');
@@ -391,32 +402,34 @@ window.MapEngine = {
             if (segments.length < 2) return;
 
             let coordStrs = segments.map(s => `${s.lng},${s.lat}`);
-            const osrmBase = window.BGN_CONFIG?.settings?.routing_api?.osrm_base_url || "https://router.project-osrm.org/route/v1/driving/";
+            const osrmBase = window.BGN_CONFIG.settings.routing_api.osrm_base_url;
             const osrmUrl = `${osrmBase}${coordStrs.join(';')}?overview=full&geometries=geojson`;
             
             let fallbackDistance = 0;
             for (let i = 0; i < segments.length - 1; i++) {
-                fallbackDistance += this.getHaversineDistance(segments[i].lat, segments[i].lng, segments[i+1].lat, segments[i+1].lng);
+                fallbackDistance += this.getHaversineDistance(segments[i].lat, segments[i].lng, segments[i + 1].lat, segments[i + 1].lng);
             }
-            fallbackDistance = fallbackDistance * 1.30; 
+            fallbackDistance = fallbackDistance * mapRouting.haversine_compensation_factor;
 
             let finalDistanceKm = 0;
             if (this.osrmAbortController) { this.osrmAbortController.abort(); }
             this.osrmAbortController = new AbortController();
+
+            const fitPadding = mapRouting.fit_bounds_padding_px;
 
             try {
                 const response = await fetch(osrmUrl, { signal: this.osrmAbortController.signal });
                 const data = await response.json();
                 if (data.code === 'Ok') {
                     const route = data.routes[0];
-                    const compensatedOsrm = (route.distance / 1000) * 1.15;
-                    finalDistanceKm = (compensatedOsrm > fallbackDistance * 2) ? fallbackDistance : compensatedOsrm;
+                    const compensatedOsrm = (route.distance / 1000) * mapRouting.osrm_compensation_factor;
+                    finalDistanceKm = (compensatedOsrm > fallbackDistance * mapRouting.osrm_max_ratio_vs_haversine) ? fallbackDistance : compensatedOsrm;
                     L.geoJSON(route.geometry, { style: { color: 'var(--route-line, #3b82f6)', weight: 6, opacity: 0.9 } }).addTo(this.wizardLayer);
                     setTimeout(() => {
                         if (this.wizardLayer && this.mainMap) {
-                            this.mainMap.fitBounds(this.wizardLayer.getBounds(), { padding: [40, 40], animate: false });
+                            this.mainMap.fitBounds(this.wizardLayer.getBounds(), { padding: [fitPadding, fitPadding], animate: false });
                         }
-                    }, 350);
+                    }, debounceMs);
                 } else {
                     finalDistanceKm = fallbackDistance;
                 }
@@ -427,7 +440,7 @@ window.MapEngine = {
 
             finalDistanceKm = parseFloat(finalDistanceKm.toFixed(2));
             window.dispatchEvent(new CustomEvent('priceCalculated', { detail: { distance: finalDistanceKm } }));
-        }, 350); 
+        }, debounceMs); 
     }
 };
 
