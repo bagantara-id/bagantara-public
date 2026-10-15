@@ -1,16 +1,18 @@
 {
-  "version": 5,
+  "version": 8,
   "paths": {
     "content_manifest": "./content/manifest.json",
     "wording": "./data/wording.json",
     "rules_app": "./data/rules-app.json",
     "tariffs": "./data/tariffs.json",
     "zones": "./data/zones.json",
-    "layanan": "./data/layanan.json"
+    "layanan": "./data/layanan.json",
+    "peak_hours": "./data/peak-hours.json"
   },
   "firebase_core": {
     "databaseURL": "https://bagantara-core-default-rtdb.asia-southeast1.firebasedatabase.app",
     "firestore_project_id": "bagantara-core",
+    "firestore_base_url": "https://firestore.googleapis.com/v1/projects",
     "fcm_vapid_key": "BGbP91MFyrPG7qKUKRo8t1CBHCejXp8LOf55CmDCznPPgawrLG8RhKKy43OvSKiFraijY2BOIg99fachaOHIxqA"
   },
   "firebase_chat": {
@@ -22,20 +24,43 @@
     "messagingSenderId": "252383215816",
     "appId": "1:252383215816:web:e029860517ce1ec77ea5fd"
   },
+  "firebase_radar": {
+    "apiKey": "AIzaSyBbG-pk2n3cJ09-egduIDhmVTS04yhX0jM",
+    "authDomain": "futaqi-ali.firebaseapp.com",
+    "databaseURL": "https://futaqi-ali-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "projectId": "futaqi-ali",
+    "storageBucket": "futaqi-ali.firebasestorage.app",
+    "messagingSenderId": "77087108301",
+    "appId": "1:77087108301:web:682924ffc170f789870d84"
+  },
   "cloudinary": {
     "cloud_name": "wuw7hvjo",
-    "upload_preset": "bagantara-chat"
+    "upload_preset": "bagantara-chat",
+    "api_base_url": "https://api.cloudinary.com/v1_1"
   },
   "micro_backend": {
     "gas_fcm_url": "https://script.google.com/macros/s/AKfycby8Bz7u9PRdmex30N2cJriZmvfYgQZnzhJtAFB0ayvTcZc5bKikjuh3XciyZE5_-s752w/exec",
-    "gas_unfurl_url": "https://script.google.com/macros/s/AKfycbyAB-WnGFYwWUk88wMihpEeBeOHsn4uJwiKl_v9lTsVGUaHvgWEorXNZgvBK8J_qvZA/exec"
+    "gas_unfurl_url": "https://script.google.com/macros/s/AKfycbwQUpRgQCO_RNRxccFhbK_WUdc6XXFyJMF5dxxPVoW4yxrB8OQjp6EKCq8c3U-PeJge/exec"
   },
   "map_config": {
     "tile_layer_url": "https://api.maptiler.com/maps/streets-v4/256/{z}/{x}/{y}.png?key=BaHHqDBvf8SyvIxFtx4r",
     "tiles_json_url": "https://api.maptiler.com/maps/streets-v4/256/tiles.json?key=BaHHqDBvf8SyvIxFtx4r",
     "tms_Reference": "./data/Streets.tms.xml",
     "fallback_tile_url": "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-    "max_zoom": 19
+    "max_zoom": 19,
+    "default_zoom": 16,
+    "focus_zoom": 17,
+    "tile_size": 256,
+    "keep_buffer": 2,
+    "max_tile_errors": 4,
+    "default_center": {
+      "lat": -7.768049,
+      "lng": 112.196514
+    },
+    "default_avatar_url": "./assets/icon-192.png",
+    "google_maps_search_url": "https://www.google.com/maps/search/?api=1&query=",
+    "google_maps_base_url": "https://www.google.com/maps/@",
+    "whatsapp_base_url": "https://wa.me/"
   },
   "geocoder_api": {
     "photon_search_url": "https://photon.komoot.io/api/?q={query}&limit=5",
