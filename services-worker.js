@@ -1,11 +1,12 @@
-const CACHE_NAME = 'bgn-core-v2';
+const CACHE_NAME = 'bgn-core-v7';
+const TILE_CACHE_NAME = 'bgn-map-tiles-v1';
 
-// Hanya cache kerangka UI utama (Irit RAM HP)
 const ASSETS_TO_CACHE = [
     './',
     './index.html',
     './css/theme.css',
-    './css/map.css'
+    './css/map.css',
+    './css/theme-chat-publik.css'
 ];
 
 self.addEventListener('install', (e) => {
@@ -16,27 +17,44 @@ self.addEventListener('install', (e) => {
 self.addEventListener('activate', (e) => {
     e.waitUntil(caches.keys().then((keys) => {
         return Promise.all(keys.map((key) => {
-            if (key !== CACHE_NAME) return caches.delete(key);
+            if (key !== CACHE_NAME && key !== TILE_CACHE_NAME) return caches.delete(key);
         }));
     }));
     self.clients.claim();
 });
 
 self.addEventListener('fetch', (e) => {
-    // BYPASS MUTLAK: Jangan pernah cache API Peta, OSRM, Firebase, atau JSON dinamis
     const url = e.request.url;
     const urlObj = new URL(url);
-    
+
+    if (url.includes('basemaps.cartocdn.com') || url.includes('tile.openstreetmap.org') || url.includes('api.maptiler.com/maps/')) {
+        e.respondWith(
+            caches.open(TILE_CACHE_NAME).then((cache) => {
+                return cache.match(e.request).then((cachedResponse) => {
+                    if (cachedResponse) return cachedResponse;
+                    return fetch(e.request).then((networkResponse) => {
+                        if (networkResponse && networkResponse.status === 200) {
+                            cache.put(e.request, networkResponse.clone());
+                        }
+                        return networkResponse;
+                    });
+                });
+            })
+        );
+        return;
+    }
+
     if (url.includes('firebasedatabase.app') || 
         url.includes('firestore.googleapis.com') || 
         url.includes('photon.komoot.io') || 
+        url.includes('api.maptiler.com/geocoding/') ||
         url.includes('project-osrm.org') ||
+        url.includes('script.google.com') ||
         urlObj.pathname.endsWith('.json')) {
         return; 
     }
 
-    // Strategi Ringan: Ambil dari internet, jika sinyal putus ambil dari Cache
     e.respondWith(
-        fetch(e.request).catch(() => caches.match(e.request))
+        fetch(e.request).catch(() => caches.match(e.request, { ignoreSearch: true }))
     );
 });

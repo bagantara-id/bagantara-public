@@ -16,53 +16,85 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
     <!-- Modul CSS Modular -->
-    <link rel="stylesheet" href="./css/theme.css?v=3.0">
-    <link rel="stylesheet" href="./css/map.css?v=3.0">
-    <link rel="stylesheet" href="./css/theme-chat-publik.css">
+    <link rel="stylesheet" href="./css/theme.css?v=7.0">
+    <link rel="stylesheet" href="./css/map.css?v=7.0">
+    <link rel="stylesheet" href="./css/theme-chat-publik.css?v=7.0">
 </head>
 <body>
     
     <div id="app-container" class="app-container">
         
-        <!-- DASHBOARD (PILIHAN LAYANAN & BANNER) -->
-        <section id="view-dashboard" class="spa-view active-view" style="padding-top: calc(env(safe-area-inset-top, 20px) + 65px);">
-            
-            <div class="service-selection-area" style="padding: 0 15px;">
-                <h2 class="font-tech text-main text-center mb-4" style="font-size: 1rem; letter-spacing: 1px;">PILIH LAYANAN</h2>
-                <div class="service-grid" id="serviceGrid">
-                    <button class="service-card" data-service="RIDE">
-                        <i class="fa-solid fa-motorcycle text-gold" style="font-size: 2.5rem;"></i>
-                        <span class="font-tech mt-2">RIDE</span>
-                    </button>
-                    <button class="service-card" data-service="CAR">
-                        <i class="fa-solid fa-car-side text-gold" style="font-size: 2.5rem;"></i>
-                        <span class="font-tech mt-2">CAR</span>
-                    </button>
-                    <button class="service-card" data-service="EXPRESS">
-                        <i class="fa-solid fa-cube text-gold" style="font-size: 2.5rem;"></i>
-                        <span class="font-tech mt-2">EXPRESS</span>
-                    </button>
-                    <button class="service-card" data-service="JASTIP">
-                        <i class="fa-solid fa-bag-shopping text-gold" style="font-size: 2.5rem;"></i>
-                        <span class="font-tech mt-2">JASTIP</span>
-                    </button>
+        <!-- BERANDA UTAMA: KATALOG DRIVER AKTIF (V7 COMPACT ACCORDION HUD) -->
+        <section id="view-mitra-map" class="spa-view active-view" style="background: var(--void-black); overflow-y: auto;">
+            <div class="mitra-catalog-shell">
+                <!-- HUD Command Bar Terpadu -->
+                <div class="mitra-hud-header">
+                    <div class="mitra-hud-toprow">
+                        <div style="display: flex; align-items: center; gap: 11px;">
+                            <div style="width: 38px; height: 38px; border-radius: 12px; background: rgba(212, 175, 55, 0.14); border: 1px solid rgba(212, 175, 55, 0.35); display: flex; align-items: center; justify-content: center;">
+                                <i class="fa-solid fa-id-card-clip text-gold" style="font-size: 1.05rem;"></i>
+                            </div>
+                            <div>
+                                <div class="font-tech text-main" style="font-size: 0.9rem; font-weight: 900; letter-spacing: 0.8px;">KATALOG DRIVER</div>
+                                <div style="display: flex; align-items: center; gap: 6px; margin-top: 2px;">
+                                    <span style="width: 7px; height: 7px; border-radius: 50%; background: var(--neon-green); display: inline-block; box-shadow: 0 0 6px var(--neon-green);"></span>
+                                    <span class="font-tech text-xs font-bold" id="mitraMapStatusText" style="color: var(--neon-green); letter-spacing: 0.4px;">MEMUAT DRIVER...</span>
+                                    <span id="mitraCountdownText" class="font-tech" style="font-size: 0.62rem; color: #10b981; font-weight: 800; background: rgba(16, 185, 129, 0.14); padding: 1px 6px; border-radius: 6px;">SIAP</span>
+                                </div>
+                            </div>
+                        </div>
+                        <button id="btnRefreshMitraMap" class="mitra-refresh-btn" title="Perbarui Katalog Driver">
+                            <i class="fa-solid fa-rotate-right" style="transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);"></i>
+                        </button>
+                    </div>
+
+                    <div class="mitra-hud-gpsbar">
+                        <div style="display: flex; align-items: center; gap: 7px; overflow: hidden;">
+                            <i class="fa-solid fa-location-crosshairs text-gold" style="font-size: 0.78rem;"></i>
+                            <span id="radarUserAddress" class="font-tech text-muted" style="font-size: 0.68rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Mencari Lokasi GPS Anda...</span>
+                        </div>
+                        <span class="font-tech" style="font-size: 0.58rem; color: var(--neon-gold); font-weight: 800; letter-spacing: 0.5px; flex-shrink: 0;">PILIH DRIVER DULU</span>
+                    </div>
                 </div>
+
+                <!-- Container Banner Informasi Dinamis (Slim Carousel) -->
+                <div id="dynamic-banner-container" style="display: flex; gap: 10px; overflow-x: auto; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; scrollbar-width: none;"></div>
+
+                <!-- Filter Chip Layanan (Gerbang Filter Sekaligus Sakelar Layanan) -->
+                <div id="radarFilterContainer" style="display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; -webkit-overflow-scrolling: touch;">
+                    <button class="radar-chip active" data-filter="ALL"><i class="fa-solid fa-layer-group"></i> Semua</button>
+                    <button class="radar-chip" data-filter="RIDE"><i class="fa-solid fa-motorcycle"></i> Ride</button>
+                    <button class="radar-chip" data-filter="CAR"><i class="fa-solid fa-car-side"></i> Car</button>
+                    <button class="radar-chip" data-filter="EXPRESS"><i class="fa-solid fa-cube"></i> Express</button>
+                    <button class="radar-chip" data-filter="JASTIP"><i class="fa-solid fa-bag-shopping"></i> Jastip</button>
+                </div>
+
+                <!-- Wadah Daftar Kartu Driver Aktif -->
+                <div id="mitraCatalogContainer" class="mitra-catalog-list"></div>
             </div>
-            
-            <!-- CONTAINER BANNER DINAMIS DIPINDAH KE BAWAH -->
-            <div id="dynamic-banner-container" style="padding: 0 15px; margin-top: 25px; display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; scrollbar-width: none;">
-                <!-- Konten Banner akan diinjeksi oleh content-loader.js ke sini -->
-            </div>
-            
-            <div style="padding-bottom: 120px;"></div>
         </section>
 
         <!-- LAYAR PENCARIAN RUTE & MULTI-STOP -->
         <section id="view-search-route" class="spa-view hidden-view compact-mode" style="padding-top: 0; background: var(--void-black); height: 100vh; display: flex; flex-direction: column; z-index: 20;">
             <div class="search-expansion-card" id="searchExpansionCard">
-                <div class="sheet-header" style="display: flex; align-items: center; gap: 15px; margin-bottom: 20px;">
+                <div class="sheet-header" style="display: flex; align-items: center; gap: 15px; margin-bottom: 14px;">
                     <button id="btnGlobalBack" class="btn-icon" style="font-size: 1.2rem; color: var(--text-main);"><i class="fa-solid fa-arrow-left"></i></button>
                     <h3 class="font-tech text-main text-lg mb-0" id="searchCardTitle">Tentukan Rute Perjalanan</h3>
+                </div>
+
+                <!-- Pita Kontekstual Driver Terkunci -->
+                <div id="prelockedBannerRoute" class="prelocked-driver-banner">
+                    <div style="display: flex; align-items: center; gap: 10px; min-width: 0;">
+                        <img class="prelock-avatar" src="./assets/icon-192.png" alt="Driver" style="width: 38px; height: 38px; border-radius: 50%; object-fit: cover; border: 1.5px solid var(--neon-gold); flex-shrink: 0;" onerror="this.src='./assets/icon-192.png'">
+                        <div style="min-width: 0;">
+                            <div class="prelock-name font-tech text-main font-bold" style="font-size: 0.82rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"></div>
+                            <div class="prelock-meta text-muted" style="font-size: 0.66rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"></div>
+                        </div>
+                    </div>
+                    <div style="text-align: right; flex-shrink: 0;">
+                        <span class="prelock-srv font-tech" style="font-size: 0.62rem; font-weight: 900; color: #090d16; background: var(--neon-gold); padding: 2px 7px; border-radius: 6px; display: inline-block;"></span>
+                        <div class="prelock-tarif font-tech text-gold" style="font-size: 0.68rem; font-weight: 800; margin-top: 3px;"></div>
+                    </div>
                 </div>
                 
                 <div class="route-inputs-container" id="routeInputsArea">
@@ -70,6 +102,7 @@
                         <div class="icon-point"><i class="fa-solid fa-circle-up text-neon"></i></div>
                         <div class="input-area">
                             <input type="text" id="inputSearchPickup" placeholder="Lokasi Anda sekarang" autocomplete="off">
+                            <button class="btn-clear-input" style="display:none;"><i class="fa-solid fa-xmark"></i></button>
                         </div>
                         <button class="btn-grid-action" id="btnMapPickup" title="Pilih Jemput di Peta"><i class="fa-solid fa-map"></i></button>
                         <button class="btn-grid-action" id="btnNotePickup" title="Tambah Catatan"><i class="fa-solid fa-pen"></i></button>
@@ -101,9 +134,20 @@
                         </div>
                     </div>
                     
-                    <!-- Tombol Tambah Tujuan -->
-                    <button id="btnAddStop" class="btn-icon hidden-compact mt-3" style="width: 100%; text-align: left; padding-left: 35px; color: var(--neon-gold); font-size: 0.85rem;"><i class="fa-solid fa-circle-plus"></i> Tambah Tujuan Lain</button>
                 </div>
+
+                <!-- Baris Tombol Aksi Rute & Impor Google Maps (Di Luar routeInputsArea agar Garis Konektor Tidak Tembus!) -->
+                <div class="hidden-compact" style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; padding-top: 4px;">
+                    <button id="btnAddStop" class="btn-icon" style="color: var(--neon-gold); font-size: 0.8rem; padding: 6px 8px;">
+                        <i class="fa-solid fa-circle-plus"></i> Tambah Tujuan
+                    </button>
+                    <button id="btnOpenGmapsRouteBridge" type="button" style="background: rgba(212, 175, 55, 0.12); border: 1px solid rgba(212, 175, 55, 0.4); color: var(--neon-gold); padding: 6px 12px; border-radius: 10px; font-family: 'Space Grotesk', monospace; font-size: 0.7rem; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+                        <i class="fa-solid fa-map-location-dot"></i> Cari via Google Maps
+                    </button>
+                </div>
+
+                <!-- Chip Brankas Memori HP (⭐) & Riwayat Lokasi Terakhir (0 API Request) -->
+                <div id="recentPlacesRouteContainer" class="recent-places-bar hidden-compact" style="display: none;"></div>
 
                 <!-- Wadah Hasil Geocoder (Photon API) -->
                 <div class="search-results-wrapper hidden-compact">
@@ -122,9 +166,24 @@
         <section id="view-jastip-search" class="spa-view hidden-view" style="padding-top: calc(env(safe-area-inset-top, 20px) + 40px); background: var(--void-black); height: 100vh; display: flex; flex-direction: column; z-index: 25;">
             <div class="search-expansion-card" style="margin: 0; border-radius: 24px 24px 0 0; background: var(--card-bg-1); border-top: 1px solid var(--border-cyber); padding: 25px 20px; box-shadow: 0 -10px 25px rgba(0,0,0,0.15); flex-grow: 1; margin-top: auto;">
                 
-                <div class="sheet-header" style="display: flex; align-items: center; gap: 15px; margin-bottom: 25px;">
+                <div class="sheet-header" style="display: flex; align-items: center; gap: 15px; margin-bottom: 14px;">
                     <button id="btnBackJastipSearch" class="btn-icon" style="font-size: 1.2rem; color: var(--text-main);"><i class="fa-solid fa-arrow-left"></i></button>
                     <h3 class="font-tech text-main text-lg mb-0">Mau belanja dari mana?</h3>
+                </div>
+
+                <!-- Pita Kontekstual Driver Terkunci (Jastip) -->
+                <div id="prelockedBannerJastip" class="prelocked-driver-banner">
+                    <div style="display: flex; align-items: center; gap: 10px; min-width: 0;">
+                        <img class="prelock-avatar" src="./assets/icon-192.png" alt="Driver" style="width: 38px; height: 38px; border-radius: 50%; object-fit: cover; border: 1.5px solid var(--neon-gold); flex-shrink: 0;" onerror="this.src='./assets/icon-192.png'">
+                        <div style="min-width: 0;">
+                            <div class="prelock-name font-tech text-main font-bold" style="font-size: 0.82rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"></div>
+                            <div class="prelock-meta text-muted" style="font-size: 0.66rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"></div>
+                        </div>
+                    </div>
+                    <div style="text-align: right; flex-shrink: 0;">
+                        <span class="prelock-srv font-tech" style="font-size: 0.62rem; font-weight: 900; color: #090d16; background: var(--neon-gold); padding: 2px 7px; border-radius: 6px; display: inline-block;">JASTIP</span>
+                        <div class="prelock-tarif font-tech text-gold" style="font-size: 0.68rem; font-weight: 800; margin-top: 3px;"></div>
+                    </div>
                 </div>
                 
                 <div class="route-inputs-container">
@@ -141,17 +200,26 @@
                     </div>
                 </div>
                 
-                <div class="search-results-wrapper" style="margin-top: 15px;">
+                <div style="display: flex; justify-content: flex-end; margin-top: 10px;">
+                    <button id="btnOpenGmapsJastipStore" type="button" style="background: rgba(212, 175, 55, 0.12); border: 1px solid rgba(212, 175, 55, 0.4); color: var(--neon-gold); padding: 6px 12px; border-radius: 10px; font-family: 'Space Grotesk', monospace; font-size: 0.7rem; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+                        <i class="fa-solid fa-map-location-dot"></i> Cari Toko via Google Maps
+                    </button>
+                </div>
+                <div id="recentPlacesJastipStore" class="recent-places-bar" style="display: none; margin-top: 8px;"></div>
+                <div class="search-results-wrapper" style="margin-top: 10px;">
                     <div id="jastipStoreResults" class="search-results-dropdown hidden"></div>
                 </div>
             </div>
         </section>
         
-        <!-- LAYAR KERANJANG JASTIP -->
-        <section id="view-jastip-items" class="spa-view hidden-view" style="padding-top: calc(env(safe-area-inset-top, 20px) + 85px); background: var(--void-black); height: 100vh; overflow-y: auto; z-index: 25;">
-            <div style="padding: 15px; padding-bottom: 120px;">
-                <h3 class="font-tech text-main text-lg mb-2" id="jastipStoreNameTitle">Lokasi Toko</h3>
-                <p class="text-muted text-xs mb-4">Silakan catat rincian barang yang ingin Anda beli dari sini.</p>
+        <!-- LAYAR KERANJANG JASTIP & TUJUAN PENGANTARAN TERPADU -->
+        <section id="view-jastip-items" class="spa-view hidden-view" style="padding-top: calc(env(safe-area-inset-top, 20px) + 25px); background: var(--void-black); height: 100vh; overflow-y: auto; z-index: 25;">
+            <div style="padding: 15px; padding-bottom: 130px;">
+                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
+                    <button id="btnBackJastipItems" class="btn-icon" style="font-size: 1.2rem; color: var(--text-main);"><i class="fa-solid fa-arrow-left"></i></button>
+                    <h3 class="font-tech text-main text-lg mb-0" id="jastipStoreNameTitle" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Lokasi Toko</h3>
+                </div>
+                <p class="text-muted text-xs mb-4">Catat rincian belanjaan dan pastikan lokasi pengantaran Anda sudah sesuai.</p>
                 
                 <div id="jastipItemsContainer">
                     <!-- Template Jastip diinjeksi ke sini secara murni -->
@@ -160,9 +228,36 @@
                 <button id="btnAddJastipItem" class="btn-icon mt-3" style="width: 100%; border: 1px dashed var(--neon-green); border-radius: 8px; padding: 12px; color: var(--neon-green); background: rgba(16, 185, 129, 0.05);">
                     <i class="fa-solid fa-plus"></i> Tambah Belanjaan
                 </button>
+
+                <!-- PANEL LOKASI PENGANTARAN BELANJAAN TERPADU (ZERO MAP DETOUR) -->
+                <div class="glass-panel mt-4" style="padding: 15px; border-radius: 14px; border: 1px solid var(--border-cyber);">
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px;">
+                        <div class="font-tech text-xs" style="color: var(--neon-gold); font-weight: 800; letter-spacing: 0.5px;">
+                            <i class="fa-solid fa-location-dot" style="color: #ef4444;"></i> LOKASI PENGANTARAN
+                        </div>
+                        <button id="btnOpenGmapsJastipDropoff" type="button" style="background: rgba(212, 175, 55, 0.12); border: 1px solid rgba(212, 175, 55, 0.4); color: var(--neon-gold); padding: 4px 9px; border-radius: 8px; font-family: 'Space Grotesk', monospace; font-size: 0.65rem; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 5px;">
+                            <i class="fa-solid fa-map-location-dot"></i> Via GMaps
+                        </button>
+                    </div>
+                    <div class="route-row-inline" style="display: flex !important; flex-direction: row !important; align-items: center; gap: 8px; background: var(--void-black); border: 1px solid var(--border-cyber); border-radius: 10px; padding: 4px 12px;">
+                        <div class="input-area" style="flex-grow: 1; position: relative;">
+                            <input type="text" id="inputJastipDropoffSearch" placeholder="Ketik alamat pengantaran..." autocomplete="off" style="width: 100%; border: none; background: transparent; color: var(--text-main); outline: none; font-size: 0.85rem; padding: 8px 24px 8px 0;">
+                            <button id="btnClearJastipDropoff" class="btn-clear-input" style="display: none; position: absolute; right: 0; top: 50%; transform: translateY(-50%);"><i class="fa-solid fa-xmark"></i></button>
+                        </div>
+                        <button id="btnJastipDropoffMap" class="btn-icon" style="color: #ef4444; font-size: 1.05rem; padding: 6px;" title="Pilih Titik Antar di Peta">
+                            <i class="fa-solid fa-map-location-dot"></i>
+                        </button>
+                    </div>
+                    <div class="search-results-wrapper" style="margin-top: 6px;">
+                        <div id="jastipDropoffResults" class="search-results-dropdown hidden"></div>
+                    </div>
+                    <div style="margin-top: 10px;">
+                        <input type="text" id="inputJastipDropoffNotes" placeholder="Patokan rumah / catatan pengantaran (opsional)..." autocomplete="off" style="width: 100%; background: var(--void-black); border: 1px solid var(--border-cyber); color: var(--text-main); padding: 8px 12px; border-radius: 8px; font-size: 0.8rem; outline: none;">
+                    </div>
+                </div>
             </div>
             
-            <div class="sticky-continue-btn" id="stickyJastipCheckout" style="display: flex; justify-content: space-between; align-items: center; background: rgba(2, 4, 10, 0.95); border-top: 1px solid var(--border-cyber); padding: 15px; display: none;">
+            <div class="sticky-continue-btn" id="stickyJastipCheckout" style="justify-content: space-between; align-items: center; background: var(--hud-bg); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-top: 1px solid var(--border-cyber); padding: 15px; display: none;">
                 <div style="display: flex; flex-direction: column;">
                     <span style="color: #10b981; font-size: 0.7rem;" id="jastipItemCount">0 Item</span>
                     <!-- PERBAIKAN WARNA MUTLAK: Mengunci ke warna Emas agar tidak distorsi -->
@@ -223,7 +318,7 @@
                         </div>
                         <div style="flex: 1; overflow: hidden; display: flex; flex-direction: column; justify-content: center;">
                             <div id="wizardInstruction" class="font-tech text-muted" style="font-size: 0.65rem; font-weight: bold; letter-spacing: 1px; margin-bottom: 4px;">MEMPROSES...</div>
-                            <div id="liveAddressTitle" class="text-main" style="font-weight: 700; font-size: 0.95rem; line-height: 1.4; overflow: hidden; text-overflow: ellipsis;">Memindai Sinyal...</div>
+                            <div id="liveAddressTitle" class="text-main" style="font-weight: 700; font-size: 0.95rem; line-height: 1.4; overflow: hidden; text-overflow: ellipsis;">Mencari Alamat...</div>
                         </div>
                     </div>
                     
@@ -244,63 +339,6 @@
                     </button>
                 </div>
             </div>
-        </section>
-
-        <!-- LAYAR HASIL RADAR (DAFTAR PENGEMUDI) -->
-        <section id="view-drivers" class="spa-view hidden-view" style="background: var(--void-black); overflow-y: auto; padding-top: calc(env(safe-area-inset-top, 20px) + 40px);">
-            <div style="padding: 15px;">
-                <div class="sheet-header" style="display: flex; align-items: center; gap: 15px; margin-bottom: 25px; border-bottom: 1px solid rgba(189, 140, 17, 0.3); padding-bottom: 15px;">
-                    <button id="btnBackFromDrivers" class="btn-icon" style="font-size: 1.2rem; color: var(--text-main);"><i class="fa-solid fa-arrow-left"></i></button>
-                    <h3 class="font-tech mb-0" style="color: #bd8c11; font-weight: 900; text-shadow: 0px 1px 3px rgba(0,0,0,0.8); font-size: 1rem;">PENGEMUDI DALAM JANGKAUAN</h3>
-                </div>
-                <div id="driverListContainer" style="display: flex; flex-direction: column; gap: 12px; padding-bottom: 100px;">
-                    <!-- Diinjeksi oleh template tpl-driver-card -->
-                </div>
-            </div>
-        </section>
-
-        <!-- LAYAR PETA MITRA -->
-        <section id="view-mitra-map" class="spa-view hidden-view" style="padding-bottom: 0;">
-            <div style="position: absolute; top: calc(env(safe-area-inset-top, 20px) + 20px); left: 20px; z-index: 1000;">
-                <div class="glass-panel" style="padding: 8px 15px; border-radius: 20px; display: flex; align-items: center; gap: 8px; border: 1px solid rgba(212, 175, 55, 0.3); background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); box-shadow: 0 4px 15px rgba(0,0,0,0.3);">
-                    <i class="fa-regular fa-map text-gold"></i>
-                    <span class="font-tech text-main text-xs font-bold" id="mitraMapStatusText">Memuat...</span>
-                    <span id="mitraCountdownText" class="font-tech" style="font-size: 0.65rem; color: #10b981; font-weight: bold; background: rgba(16, 185, 129, 0.15); padding: 2px 6px; border-radius: 8px;"></span>
-                </div>
-            </div>
-            
-            <!-- Tombol Pengalih Tema (Siang/Malam) -->
-            <button id="btnMapThemeToggle" class="btn-floating-action" style="position: absolute; bottom: 160px; right: 20px; z-index: 1000; width: 45px; height: 45px; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); color: #60a5fa; border: 1px solid rgba(96, 165, 250, 0.5); border-radius: 50%; box-shadow: 0 4px 15px rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; transition: all 0.3s ease;">
-                <i class="fa-solid fa-moon"></i>
-            </button>
-            
-            <button id="btnRefreshMitraMap" class="btn-floating-action" style="position: absolute; bottom: 100px; right: 20px; z-index: 1000; width: 45px; height: 45px; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); color: #ceab6b; border: 1px solid rgba(212, 175, 55, 0.5); border-radius: 50%; box-shadow: 0 4px 15px rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; transition: all 0.3s ease;">
-                <i class="fa-solid fa-rotate-right" style="transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);"></i>
-            </button>
-            <main class="map-area">
-                <div id="mitra-map-container" style="width: 100%; height: 100%; z-index: 1;"></div>
-                
-                <!-- TAHAP 1: PANEL LOKASI & FILTER SMART RADAR 2.0 (COMPACT MODE) -->
-                <div style="position: absolute; top: calc(env(safe-area-inset-top, 20px) + 70px); left: 10px; right: 10px; z-index: 1000; display: flex; flex-direction: column; gap: 8px; pointer-events: none;">
-                    
-                    <!-- Indikator Lokasi (Tipis & Ringan) -->
-                    <div style="background: rgba(2, 4, 10, 0.9); border: 1px solid var(--border-cyber); border-radius: 8px; padding: 6px 10px; display: flex; align-items: center; gap: 8px; pointer-events: auto;">
-                        <i class="fa-solid fa-crosshairs text-gold" style="font-size: 0.8rem;"></i>
-                        <span id="radarUserAddress" style="font-size: 0.75rem; color: #f8fafc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: 'Outfit', sans-serif;">Memindai GPS...</span>
-                    </div>
-                    
-                    <!-- Filter Chip Menyamping -->
-                    <div id="radarFilterContainer" style="display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; pointer-events: auto; scrollbar-width: none;">
-                        <button class="radar-chip active" data-filter="ALL" style="padding: 4px 12px; font-size: 0.7rem; border-radius: 12px; white-space: nowrap;">Semua</button>
-                        <button class="radar-chip" data-filter="RIDE" style="padding: 4px 12px; font-size: 0.7rem; border-radius: 12px; white-space: nowrap;">Ride</button>
-                        <button class="radar-chip" data-filter="CAR" style="padding: 4px 12px; font-size: 0.7rem; border-radius: 12px; white-space: nowrap;">Car</button>
-                        <button class="radar-chip" data-filter="EXPRESS" style="padding: 4px 12px; font-size: 0.7rem; border-radius: 12px; white-space: nowrap;">Express</button>
-                        <button class="radar-chip" data-filter="JASTIP" style="padding: 4px 12px; font-size: 0.7rem; border-radius: 12px; white-space: nowrap;">Jastip</button>
-                    </div>
-                </div>
-                <!-- AKHIR INJEKSI TAHAP 1 -->
-                
-            </main>
         </section>
 
         <!-- Tombol Pemulihan Chat (Dipindahkan ke Kiri agar tidak tabrakan dengan Refresh Map) -->
@@ -339,6 +377,30 @@
                     </button>
                 </div>
                 <button id="btnCloseSettings" class="btn-primary w-full" style="font-size: 0.75rem;">TUTUP PENGATURAN</button>
+            </div>
+        </div>
+
+        <!-- MODAL SMART TARIFF MATCH (PENYESUAIAN TARIF MINIMAL DRIVER PILIHAN) -->
+        <div id="tariff-match-overlay" class="captcha-overlay hidden" style="z-index: 9998;">
+            <div class="glass-panel text-center" style="padding: 24px 20px; border-radius: 18px; width: 90%; max-width: 350px; border: 1px solid var(--neon-gold); box-shadow: 0 12px 40px rgba(0,0,0,0.65);">
+                <i class="fa-solid fa-scale-balanced text-gold text-3xl mb-3"></i>
+                <h3 class="font-tech text-main text-sm font-bold mb-2" style="letter-spacing: 0.5px;">PENYESUAIAN TARIF MINIMAL DRIVER</h3>
+                <p class="text-muted text-xs mb-4" style="line-height: 1.55;">
+                    Tarif jarak rute Anda (<b id="tmRoutePrice" class="text-main"></b>) berada di bawah batas Tarif Minimal yang ditetapkan oleh Driver <b id="tmDriverName" style="color: var(--neon-gold);"></b>.
+                </p>
+                <div style="background: var(--void-black); border: 1px solid var(--border-gold-subtle); border-radius: 12px; padding: 10px 14px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center;">
+                    <div style="text-align: left;">
+                        <span class="text-muted" style="font-size: 0.6rem; display: block; font-weight: 700;">TARIF MINIMAL DRIVER</span>
+                        <span id="tmMinTariff" class="font-tech text-gold font-bold" style="font-size: 1rem;"></span>
+                    </div>
+                    <span id="tmDiffPrice" class="font-tech" style="font-size: 0.72rem; font-weight: 800; color: var(--neon-green); background: rgba(16, 185, 129, 0.14); padding: 4px 8px; border-radius: 8px;"></span>
+                </div>
+                <button id="btnApproveTariffMatch" type="button" class="btn-primary w-full mb-2" style="font-size: 0.75rem;">
+                    <i class="fa-solid fa-bolt"></i> SETUJU &amp; LANJUTKAN PESANAN
+                </button>
+                <button id="btnRejectTariffMatch" type="button" class="btn-icon w-full" style="font-size: 0.74rem; color: #ef4444;">
+                    Pilih Driver Lain
+                </button>
             </div>
         </div>
 
@@ -383,8 +445,56 @@
                     </div>
                     <!-- Form Input Estimasi Belanja Jastip (Telah dihapus secara arsitektural) -->
                 </div>
-                <button id="btnSubmitClient" class="btn-primary w-full" style="font-size: 0.75rem;">OTORISASI PERJALANAN</button>
+                <button id="btnSubmitClient" class="btn-primary w-full" style="font-size: 0.75rem;">KONFIRMASI PESANAN</button>
                 <button id="btnCancelClient" class="btn-icon w-full mt-2" style="font-size: 0.75rem;">Batal</button>
+            </div>
+        </div>
+
+        <!-- MODAL PINTAR: GOOGLE MAPS SMART BRIDGE & LOCAL VAULT -->
+        <div id="gmaps-bridge-overlay" class="captcha-overlay hidden" style="z-index: 9995;">
+            <div class="glass-panel" style="padding: 22px 18px; border-radius: 18px; width: 92%; max-width: 380px; border: 1px solid rgba(212, 175, 55, 0.4); box-shadow: 0 12px 40px rgba(0,0,0,0.65); display: flex; flex-direction: column; gap: 12px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border-cyber); padding-bottom: 10px;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <i class="fa-solid fa-map-location-dot text-gold" style="font-size: 1.15rem;"></i>
+                        <span class="font-tech text-main" style="font-size: 0.85rem; font-weight: 900; letter-spacing: 0.5px;">IMPOR AKURAT GOOGLE MAPS</span>
+                    </div>
+                    <button id="btnCancelGmapsBridge" type="button" class="btn-icon" style="font-size: 1rem;"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+
+                <!-- Langkah 1: Buka Google Maps -->
+                <div style="background: var(--void-black); border: 1px solid var(--border-cyber); border-radius: 12px; padding: 10px 12px;">
+                    <div class="font-tech text-gold" style="font-size: 0.65rem; font-weight: 800; margin-bottom: 4px;">LANGKAH 1: CARI TITIK DI GOOGLE MAPS</div>
+                    <p class="text-muted" style="font-size: 0.7rem; line-height: 1.4; margin-bottom: 8px;">
+                        Buka Google Maps, cari lokasi/warung/kos Anda, lalu <b>Salin Link Bagikan</b>, <b>Kode Plus (XXXX+XXX)</b>, atau <b>Tekan &amp; Tahan titik</b> untuk menyalin angka koordinatnya.
+                    </p>
+                    <button id="btnLaunchGoogleMapsApp" type="button" style="width: 100%; background: rgba(16, 185, 129, 0.14); border: 1px solid var(--neon-green); color: var(--neon-green); padding: 9px; border-radius: 8px; font-family: 'Space Grotesk', monospace; font-size: 0.72rem; font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;">
+                        <i class="fa-solid fa-up-right-from-square"></i> BUKA APLIKASI GOOGLE MAPS
+                    </button>
+                </div>
+
+                <!-- Langkah 2: Tempel & Ekstrak -->
+                <div style="display: flex; flex-direction: column; gap: 8px;">
+                    <div style="display: flex; align-items: center; justify-content: space-between;">
+                        <span class="font-tech text-gold" style="font-size: 0.65rem; font-weight: 800;">LANGKAH 2: TEMPEL HASIL SALINAN</span>
+                        <button id="btnPasteGmapsClipboard" type="button" style="background: rgba(212, 175, 55, 0.16); border: 1px solid var(--neon-gold); color: var(--neon-gold); padding: 4px 10px; border-radius: 6px; font-size: 0.68rem; font-weight: 800; cursor: pointer;">
+                            <i class="fa-solid fa-paste"></i> Tempel Otomatis
+                        </button>
+                    </div>
+                    <input type="text" id="inputGmapsRaw" placeholder="Tempel Link GMaps / Kode Plus / Koordinat..." autocomplete="off" style="width: 100%; background: var(--void-black) !important; border: 1px solid var(--border-cyber) !important; color: var(--text-main) !important; padding: 10px 12px; border-radius: 10px; font-size: 0.8rem; outline: none;">
+                </div>
+
+                <!-- Kotak Pratinjau Hasil Ekstraksi -->
+                <div id="gmapsExtractPreview" style="display: none; background: var(--void-black); border: 1px solid var(--border-cyber); border-radius: 10px; padding: 10px 12px;"></div>
+
+                <!-- Langkah 3: Beri Nama Simpanan Memori HP -->
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                    <span class="font-tech text-muted" style="font-size: 0.63rem; font-weight: 700;">SIMPAN NAMA LOKASI DI MEMORI HP (UNTUK 1-KLIK NANTI):</span>
+                    <input type="text" id="inputGmapsCustomLabel" placeholder="Cth: Rumah Saya / Kos Melati / Bakso Cak Man..." autocomplete="off" style="width: 100%; background: var(--void-black) !important; border: 1px solid var(--border-cyber) !important; color: var(--text-main) !important; padding: 10px 12px; border-radius: 10px; font-size: 0.82rem; font-weight: 600; outline: none;">
+                </div>
+
+                <button id="btnConfirmGmapsLock" type="button" class="btn-primary w-full" disabled style="font-size: 0.75rem; padding: 12px;">
+                    <i class="fa-solid fa-floppy-disk"></i> KUNCI &amp; SIMPAN KE MEMORI HP
+                </button>
             </div>
         </div>
 
@@ -402,18 +512,15 @@
             nav.bottom-nav:not(.hidden) { display: flex; justify-content: space-evenly; width: 100%; padding: 8px 0; }
             nav.bottom-nav .nav-item { flex: 1; min-width: 0; }
         </style>
-        <nav class="bottom-nav glass-panel" id="mainBottomNav">
+        <nav class="bottom-nav" id="mainBottomNav">
             <a href="#" class="nav-item active" id="navHome">
-                <i class="fa-solid fa-house"></i><span>Beranda</span>
-            </a>
-            <a href="#" class="nav-item" id="navMitraMap">
-                <i class="fa-solid fa-users-viewfinder"></i><span>Live Map</span>
+                <i class="fa-solid fa-id-card-clip"></i><span>Katalog Driver</span>
             </a>
             <a href="#" class="nav-item" id="navAbout">
-                <i class="fa-solid fa-circle-info"></i><span>Tentang</span>
+                <i class="fa-solid fa-circle-info"></i><span>Informasi</span>
             </a>
             <a href="#" class="nav-item" id="navSettings">
-                <i class="fa-solid fa-gear"></i><span>Pengaturan</span>
+                <i class="fa-solid fa-sliders"></i><span>Pengaturan</span>
             </a>
         </nav>
     </div>
@@ -423,53 +530,12 @@
     <!-- ========================================== -->
     <div id="system-templates" style="display: none;">
         
-        <!-- 1. KARTU PENGEMUDI (Dari firebase-engine.js) -->
-        <template id="tpl-driver-card">
-            <div class="glass-panel" style="padding: 15px; border-radius: 16px; display: flex; flex-direction: column; gap: 10px; border-left: 3px solid var(--neon-gold); animation: fadeIn 0.4s ease-out;">
-                <div style="display: flex; gap: 15px; align-items: flex-start;">
-                    <div style="flex-shrink: 0; width: 50px; height: 50px; border-radius: 50%; padding: 2px; background: linear-gradient(135deg, var(--neon-gold), #8a6327); box-shadow: 0 4px 10px rgba(0,0,0,0.3);">
-                        <img class="tpl-foto" src="" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover; background: var(--void-black);" onerror="this.src='./assets/icon-192.png'">
-                    </div>
-                    <div style="flex-grow: 1;">
-                        <div class="tpl-nama font-tech font-bold text-main" style="font-size: 0.95rem; line-height: 1.2;"></div>
-                        <div class="tpl-plat text-muted" style="font-size: 0.7rem; font-weight: 600; letter-spacing: 0.5px; margin-top: 2px;"></div>
-                        <div class="tpl-jarak-container text-neon font-bold" style="font-size: 0.65rem; margin-top: 4px;">
-                            <i class="fa-solid fa-location-dot"></i> ~ <span class="tpl-jarak"></span> KM dari Anda
-                        </div>
-                    </div>
-                </div>
-                <div class="tpl-info text-muted" style="font-size: 0.75rem; font-style: italic; border-left: 2px solid rgba(255,255,255,0.1); padding-left: 8px; margin-top: 5px; display: none;"></div>
-                <button class="tpl-btn-pilih btn-primary mt-2" style="padding: 10px; font-size: 0.75rem;">
-                    <i class="fa-solid fa-lock"></i> PILIH PENGEMUDI INI
-                </button>
-            </div>
-        </template>
-
-        <!-- 2. KARTU BOOST / PENAWARAN PINTAR (Dari firebase-engine.js) -->
-        <template id="tpl-boost-card">
-            <div class="glass-panel text-center" style="padding: 25px; border-radius: 16px; border: 1px solid var(--neon-gold); box-shadow: 0 10px 30px rgba(189, 140, 17, 0.15);">
-                <i class="fa-solid fa-hand-holding-dollar text-gold text-4xl mb-4"></i>
-                <h3 class="font-tech text-main text-sm font-bold mb-3">PENAWARAN PINTAR (BOOST)</h3>
-                <p class="text-muted text-xs mb-5" style="line-height: 1.6;">
-                    Terdapat <b class="tpl-boost-count"></b> Pengemudi di sekitar Anda.<br>
-                    Namun, tarif standar rute ini sedikit di bawah batas minimal mereka.<br><br>
-                    Tambahkan kompensasi <b class="tpl-boost-price" style="color: var(--neon-gold); font-size: 0.85rem;"></b> untuk memanggil mereka.
-                </p>
-                <button class="tpl-btn-setuju btn-primary w-full pulse-attention" style="margin-bottom: 12px; font-size: 0.75rem;">
-                    <i class="fa-solid fa-bolt"></i> SETUJU & TAMBAHKAN
-                </button>
-                <button class="tpl-btn-tolak btn-icon w-full" style="font-size: 0.75rem; color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3);">
-                    <i class="fa-solid fa-xmark"></i> BATALKAN PESANAN
-                </button>
-            </div>
-        </template>
-        
-        <!-- 3. MITRA KOSONG (Dari firebase-engine.js) -->
+        <!-- 3. DRIVER KOSONG (Dari firebase-engine.js) -->
         <template id="tpl-empty-drivers">
             <div class="glass-panel text-center text-muted" style="padding: 25px; border-radius: 16px;">
                 <i class="fa-solid fa-triangle-exclamation text-gold text-2xl mb-3"></i><br>
-                <b class="text-main">Mitra Tidak Ditemukan.</b><br><br>
-                Tidak ada mitra pengemudi yang aktif di area Anda, atau tarif pesanan di bawah standar minimal mitra sekitar.
+                <b class="text-main">Driver Belum Tersedia.</b><br><br>
+                Belum ada driver yang sedang online di sekitar area Anda untuk filter layanan ini.
             </div>
         </template>
 
@@ -523,60 +589,68 @@
             </div>
         </template>
 
-        <!-- 7. POPUP MITRA KACA BURAM -->
-        <template id="tpl-mitra-popup">
-            <div style="font-family: 'Outfit', sans-serif; padding: 6px; box-sizing: border-box; display: flex; flex-direction: column; gap: 8px; color: #f8fafc;">
-                <!-- Header Profil & Kendaraan -->
-                <div style="display: flex; flex-direction: column; gap: 2px; border-bottom: 1px solid rgba(212, 175, 55, 0.3); padding-bottom: 6px;">
-                    <div style="display: flex; align-items: center; gap: 6px;">
-                        <i class="fa-solid fa-motorcycle text-gold" style="font-size: 0.9rem;"></i>
-                        <span class="tpl-driver-type" style="font-weight: 900; font-size: 12px; color: #ceab6b; text-transform: uppercase; letter-spacing: 0.5px;"></span>
+        <!-- 7. KARTU COMPACT ACCORDION KATALOG DRIVER AKTIF (V7) -->
+        <template id="tpl-mitra-catalog-card">
+            <article class="mitra-catalog-card">
+                <!-- Baris Ringkas Utama (Tampil Default ~64px, Klik untuk Tarik ke Bawah / Expand) -->
+                <div class="driver-card-summary">
+                    <div class="tpl-avatar-ring">
+                        <img class="tpl-foto" src="./assets/icon-192.png" loading="lazy" alt="Foto Driver" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover; background: var(--void-black);" onerror="this.src='./assets/icon-192.png'">
                     </div>
-                    <span class="tpl-kendaraan" style="font-size: 10px; color: #cbd5e1; font-weight: 400; margin-left: 22px;"></span>
-                </div>
-                
-                <!-- Info Grid -->
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 9px;">
-                    <div style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); padding: 6px; border-radius: 6px;">
-                        <span style="display: block; font-size: 8px; color: #94a3b8; font-weight: bold; margin-bottom: 2px;">LAYANAN</span>
-                        <b class="tpl-layanan" style="color: #f1f5f9; word-wrap: break-word;"></b>
+                    <div style="flex: 1; min-width: 0;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+                            <div style="display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden;">
+                                <div class="tpl-nama font-tech font-bold text-main" style="font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"></div>
+                                <span class="tpl-badge-terdekat badge-terdekat" style="display: none;"><i class="fa-solid fa-bolt"></i> Terdekat</span>
+                            </div>
+                            <span class="tpl-armada-badge font-tech" style="font-size: 0.56rem; font-weight: 800; color: var(--neon-gold); background: rgba(212, 175, 55, 0.14); border: 1px solid rgba(212, 175, 55, 0.35); padding: 2px 7px; border-radius: 7px; flex-shrink: 0;"></span>
+                        </div>
+                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: 5px;">
+                            <div style="display: flex; align-items: center; gap: 6px; font-size: 0.68rem; min-width: 0; overflow: hidden;">
+                                <span class="text-neon font-bold" style="white-space: nowrap;"><i class="fa-solid fa-location-dot"></i> <span class="tpl-jarak"></span></span>
+                                <span class="text-muted">•</span>
+                                <span class="tpl-tarif-ringkas font-tech font-bold" style="color: var(--neon-gold); white-space: nowrap;"></span>
+                            </div>
+                            <!-- Kapsul Kecil Lihat Lokasi Driver Saat Ini di Google Maps -->
+                            <a class="tpl-driver-loc-pill driver-loc-pill" href="#" target="_blank" rel="noopener noreferrer" title="Lihat Lokasi Driver Saat Ini di Google Maps">
+                                <i class="fa-solid fa-location-crosshairs"></i> Lokasi Driver
+                            </a>
+                        </div>
                     </div>
-                    <div style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); padding: 6px; border-radius: 6px;">
-                        <span style="display: block; font-size: 8px; color: #94a3b8; font-weight: bold; margin-bottom: 2px;">RADIUS JEMPUT</span>
-                        <b class="tpl-radius" style="color: #f1f5f9;"></b>
-                    </div>
+                    <button type="button" class="btn-expand-drawer" aria-label="Buka rincian driver">
+                        <i class="fa-solid fa-chevron-down"></i>
+                    </button>
                 </div>
 
-                <!-- Info Agenda Ringkas -->
-                <div style="font-size: 10px; color: #cbd5e1; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); padding: 6px; border-radius: 6px; display: flex; gap: 6px; align-items: flex-start;">
-                    <i class="fa-solid fa-circle-info text-gold" style="margin-top: 2px;"></i>
-                    <i class="tpl-info-agenda" style="line-height: 1.3;"></i>
-                </div>
+                <!-- Laci Ekspansi Bawah (Muncul Saat Kartu Ditarik/Diketuk) -->
+                <div class="driver-card-drawer">
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;">
+                        <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
+                            <span class="tpl-plat-badge mitra-plate-badge"></span>
+                            <span class="tpl-kendaraan text-muted" style="font-size: 0.72rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"></span>
+                        </div>
+                        <span class="tpl-waktu-aktif text-muted" style="font-size: 0.65rem;"></span>
+                    </div>
 
-                <!-- Tarif Bar -->
-                <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(212, 175, 55, 0.15); border: 1px solid rgba(212, 175, 55, 0.5); border-radius: 6px; padding: 6px 8px;">
-                    <span style="font-size: 9px; color: #fde68a; font-weight: bold; letter-spacing: 0.5px;">TARIF MIN:</span>
-                    <span class="tpl-tarif" style="font-size: 12px; font-weight: 900; color: #fde68a;"></span>
-                </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; background: var(--void-black); border: 1px solid var(--border-cyber); border-radius: 11px; padding: 8px 11px;">
+                        <div>
+                            <span class="text-muted" style="display: block; font-size: 0.56rem; font-weight: 700; letter-spacing: 0.5px;">TARIF MINIMAL DRIVER</span>
+                            <span class="tpl-tarif font-tech font-bold" style="font-size: 0.84rem; color: var(--neon-gold);"></span>
+                        </div>
+                        <div style="border-left: 1px solid var(--border-cyber); padding-left: 10px;">
+                            <span class="text-muted" style="display: block; font-size: 0.56rem; font-weight: 700; letter-spacing: 0.5px;">JANGKAUAN JEMPUT</span>
+                            <span class="tpl-radius font-tech font-bold text-main" style="font-size: 0.8rem;"></span>
+                        </div>
+                    </div>
 
-                <!-- Peringatan & Status Kelayakan -->
-                <div class="tpl-stale-warning" style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 6px; padding: 6px; display: none;"></div>
-                <div class="tpl-feasibility-status" style="font-size: 10px; font-weight: bold; text-align: center; padding: 6px; border-radius: 6px;"></div>
-                
-                <!-- Action Buttons (Slim) -->
-                <div class="tpl-action-container" style="width: 100%; display: flex; flex-direction: column; gap: 6px;">
-                    <div class="tpl-dynamic-services" style="display: none; flex-direction: column; gap: 6px; width: 100%;"></div>
-                    <button class="tpl-btn-manual-wa" style="width: 100%; padding: 8px; font-size: 11px; font-weight: 900; border-radius: 6px; background: #10b981; color: #0f172a; border: none; display: none; text-transform: uppercase;"><i class="fa-brands fa-whatsapp"></i> Chat Manual</button>
+                    <div class="tpl-agenda-wrap" style="display: none; gap: 8px; align-items: flex-start; font-size: 0.72rem; color: var(--text-muted); background: rgba(212, 175, 55, 0.06); border-left: 2px solid var(--neon-gold); padding: 6px 10px; border-radius: 0 8px 8px 0;">
+                        <i class="fa-solid fa-quote-left text-gold" style="font-size: 0.62rem; margin-top: 3px;"></i>
+                        <span class="tpl-info-agenda" style="font-style: italic; line-height: 1.35;"></span>
+                    </div>
+
+                    <div class="tpl-dynamic-services mitra-srv-grid"></div>
                 </div>
-            </div>
-        </template>
-        
-        <!-- 8. LOADING POPUP MITRA (Dari mitra-map.js) -->
-        <template id="tpl-mitra-popup-loading">
-            <div style="font-family: 'Outfit', sans-serif; text-align: center; min-width: 140px; padding: 10px;">
-                <i class="fa-solid fa-circle-notch fa-spin text-gold mb-2" style="font-size: 20px;"></i>
-                <div style="font-size: 12px; font-weight: 600;">Memuat Data...</div>
-            </div>
+            </article>
         </template>
 
         <!-- 9. PANEL KOMUNIKASI UTAMA (Modul Chat Klien) -->
@@ -592,12 +666,12 @@
                             <i class="fa-solid fa-shield-halved" style="font-size: 1.25rem;"></i>
                         </div>
                         <div>
-                            <h3 class="tpl-chat-title" style="font-weight: 700; letter-spacing: 0.025em; font-size: 0.875rem; text-transform: uppercase; color: #1e293b; margin: 0;">Sesi Privat</h3>
+                            <h3 class="tpl-chat-title" style="font-weight: 700; letter-spacing: 0.025em; font-size: 0.875rem; text-transform: uppercase; color: #f8fafc; margin: 0;">Sesi Privat</h3>
                             <span style="display: flex; align-items: center; gap: 4px; font-size: 0.6rem; color: #64748b; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em;">
                                 <i class="fa-solid fa-lock"></i> Terenkripsi
                                 <span class="tpl-chat-status" style="margin-left: 4px; display: flex; align-items: center; gap: 4px; color: #10b981;">
                                     <span style="width: 6px; height: 6px; background: #10b981; border-radius: 50%; display: inline-block; box-shadow: 0 0 5px #10b981;"></span>
-                                </span>p
+                                </span>
                             </span>
                         </div>
                     </div>
