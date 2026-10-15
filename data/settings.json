@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 5,
   "paths": {
     "content_manifest": "./content/manifest.json",
     "wording": "./data/wording.json",
@@ -10,7 +10,8 @@
   },
   "firebase_core": {
     "databaseURL": "https://bagantara-core-default-rtdb.asia-southeast1.firebasedatabase.app",
-    "firestore_project_id": "bagantara-core"
+    "firestore_project_id": "bagantara-core",
+    "fcm_vapid_key": "BGbP91MFyrPG7qKUKRo8t1CBHCejXp8LOf55CmDCznPPgawrLG8RhKKy43OvSKiFraijY2BOIg99fachaOHIxqA"
   },
   "firebase_chat": {
     "apiKey": "AIzaSyArsaabjy6lr1lzYCBS__1IsjOnhntnzvE",
@@ -25,13 +26,24 @@
     "cloud_name": "wuw7hvjo",
     "upload_preset": "bagantara-chat"
   },
+  "micro_backend": {
+    "gas_fcm_url": "https://script.google.com/macros/s/AKfycby8Bz7u9PRdmex30N2cJriZmvfYgQZnzhJtAFB0ayvTcZc5bKikjuh3XciyZE5_-s752w/exec",
+    "gas_unfurl_url": "https://script.google.com/macros/s/AKfycbyAB-WnGFYwWUk88wMihpEeBeOHsn4uJwiKl_v9lTsVGUaHvgWEorXNZgvBK8J_qvZA/exec"
+  },
   "map_config": {
-    "tile_layer_url": "https://api.maptiler.com/maps/streets-v4/256/{z}/{x}/{y}.png?key=TYA0KZv2dlhm0BJkEaHe",
+    "tile_layer_url": "https://api.maptiler.com/maps/streets-v4/256/{z}/{x}/{y}.png?key=BaHHqDBvf8SyvIxFtx4r",
+    "tiles_json_url": "https://api.maptiler.com/maps/streets-v4/256/tiles.json?key=BaHHqDBvf8SyvIxFtx4r",
+    "tms_Reference": "./data/Streets.tms.xml",
+    "fallback_tile_url": "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
     "max_zoom": 19
   },
   "geocoder_api": {
+    "photon_search_url": "https://photon.komoot.io/api/?q={query}&limit=5",
+    "photon_reverse_url": "https://photon.komoot.io/reverse?lon={lng}&lat={lat}",
     "search_url_template": "https://api.maptiler.com/geocoding/{query}.json?key=TYA0KZv2dlhm0BJkEaHe&limit=5",
-    "reverse_url_template": "https://api.maptiler.com/geocoding/{lng},{lat}.json?key=TYA0KZv2dlhm0BJkEaHe"
+    "reverse_url_template": "https://api.maptiler.com/geocoding/{lng},{lat}.json?key=TYA0KZv2dlhm0BJkEaHe",
+    "backup_search_url_template": "https://api.maptiler.com/geocoding/{query}.json?key=BaHHqDBvf8SyvIxFtx4r&limit=5",
+    "backup_reverse_url_template": "https://api.maptiler.com/geocoding/{lng},{lat}.json?key=BaHHqDBvf8SyvIxFtx4r"
   },
   "routing_api": {
     "osrm_base_url": "https://router.project-osrm.org/route/v1/driving/"

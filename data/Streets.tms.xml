@@ -1,0 +1,34 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<mapsource inline='true' source-platform='win' version='18.1' xmlns:user='http://www.tableausoftware.com/xml/user'>
+  <document-format-change-manifest>
+    <MapAttribution2 />
+  </document-format-change-manifest>
+  <connection
+  class='CustomMapbox'
+  inline='true'
+  offline=''
+  port=''
+  server='https://api.maptiler.com'
+  url=''
+  wait-tile-color='#dddddd' />
+  <languages />
+  <layers>
+    <layer display-name='Streets' name='Streets' show-ui='true' type='features' />
+  </layers>
+  <properties />
+  <map-styles>
+    <map-style display-name='Streets' name='/maps/streets-v4/style.json?key=int_65L70GX3VQA1mh6pf8iv' wait-tile-color='#dddddd'>
+      <map-layer-style name='streets' request-string='' />
+    </map-style>
+  </map-styles>
+  <mapsource-defaults version='18.1'>
+    <style>
+      <style-rule element='map'>
+        <format attr='map-style' value='/maps/streets-v4/style.json?key=int_65L70GX3VQA1mh6pf8iv' />
+        <format attr='washout' value='0' />
+      </style-rule>
+    </style>
+  </mapsource-defaults>
+  <map-attribution copyright-string='© MapTiler' copyright-url='https://www.maptiler.com/copyright/' short-copyright-string='© MapTiler' />
+  <map-attribution2 copyright-string='© OpenStreetMap' short-copyright-string='© OSM' copyright-url='' />
+</mapsource>

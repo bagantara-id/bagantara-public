@@ -1,8 +1,8 @@
 {
-  "version": 1,
+  "version": 2,
   "services": {
     "RIDE": true,
-    "CAR": false,
+    "CAR": true,
     "EXPRESS": true,
     "JASTIP": true
   }
