@@ -1,20 +1,19 @@
 // ==========================================
-// MESIN KONTEN INDEPENDEN (HEADLESS UI)
+// MESIN KONTEN INDEPENDEN (HEADLESS UI - ZERO FALLBACK)
 // ==========================================
 
 window.ContentLoader = {
     init: async function() {
         try {
-            const manifestUrl = window.BGN_CONFIG?.settings?.paths?.content_manifest;
+            const manifestUrl = window.BGN_CONFIG.settings.paths.content_manifest;
             if (!manifestUrl) throw new Error("Path manifest tidak ditemukan di settings.json");
             
-            // PERBAIKAN LOKAL: Hapus parameter query ?v= yang ditolak server Android
             const res = await fetch(manifestUrl);
             if (!res.ok) throw new Error("Manifest tidak ditemukan");
             const data = await res.json();
             
-            this.loadBanners(data.banners || []);
-            this.loadAboutPages(data.about_pages || []);
+            this.loadBanners(Array.isArray(data.banners) ? data.banners : []);
+            this.loadAboutPages(Array.isArray(data.about_pages) ? data.about_pages : []);
         } catch (err) {
             console.warn("[ContentLoader] Gagal memuat konten dinamis:", err);
         }
@@ -23,7 +22,7 @@ window.ContentLoader = {
     loadBanners: function(banners) {
         const container = document.getElementById('dynamic-banner-container');
         if (!container || banners.length === 0) {
-            if(container) container.style.display = 'none';
+            if (container) container.style.display = 'none';
             return;
         }
         container.style.display = 'flex';
@@ -42,6 +41,7 @@ window.ContentLoader = {
     loadAboutPages: function(pages) {
         const container = document.getElementById('dynamic-about-list');
         if (!container || pages.length === 0) return;
+        const msgMaintenance = window.BGN_CONFIG.wording.alerts.content_maintenance;
         
         pages.forEach(p => {
             const item = document.createElement('div');
@@ -64,12 +64,12 @@ window.ContentLoader = {
                         contentBox.style.maxHeight = '100px';
                         contentBox.style.padding = '0 16px 16px 16px';
                         try {
-                            const res = await fetch(`${p.file}?v=${new Date().getTime()}`);
+                            const res = await fetch(p.file);
                             if (!res.ok) throw new Error("File 404");
                             contentBox.innerHTML = await res.text();
                             isLoaded = true;
                         } catch(e) {
-                            contentBox.innerHTML = '<div style="color:#ef4444; padding-bottom:10px;">Konten sedang dalam perbaikan.</div>';
+                            contentBox.innerHTML = `<div style="color:#ef4444; padding-bottom:10px;">${msgMaintenance}</div>`;
                         }
                     }
                     contentBox.style.maxHeight = contentBox.scrollHeight + 100 + 'px';
@@ -88,13 +88,12 @@ window.ContentLoader = {
     }
 };
 
-// SARAF PENUNGGU: Tahan eksekusi sampai JSON Utama selesai disedot
 document.addEventListener('DOMContentLoaded', () => {
     if (window.ConfigManager && window.ConfigManager.isLoaded) {
         window.ContentLoader.init();
     } else {
         window.addEventListener('bgn_config_loaded', () => {
             window.ContentLoader.init();
-        });
+        }, { once: true });
     }
 });

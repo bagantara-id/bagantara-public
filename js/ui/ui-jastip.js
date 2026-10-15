@@ -1,5 +1,5 @@
 // ==========================================
-// MESIN PERENDER UI JASTIP (PURE DOM CLONE)
+// MESIN PERENDER UI JASTIP (PURE DOM CLONE - ZERO FALLBACK)
 // ==========================================
 
 window.UIJastip = {
@@ -30,7 +30,6 @@ window.UIJastip = {
         
         if (!template || !container) return;
         
-        // Kloning Node Murni (Bebas HTML Injection)
         const clone = template.content.cloneNode(true);
         
         const card = clone.querySelector('.jastip-item-card');
@@ -45,7 +44,6 @@ window.UIJastip = {
         
         qtySpan.id = `jastip-qty-${id}`;
         
-        // Pemasangan Saraf Event secara Spasial
         inputName.addEventListener('input', () => this.triggerUpdate());
         inputPrice.addEventListener('input', () => this.triggerUpdate());
         btnRemove.addEventListener('click', () => this.removeItem(id));
@@ -68,7 +66,8 @@ window.UIJastip = {
         const qtySpan = document.getElementById(`jastip-qty-${id}`);
         if (!qtySpan) return;
         
-        let currentQty = parseInt(qtySpan.getAttribute('data-val')) || 1;
+        const parsedQty = parseInt(qtySpan.getAttribute('data-val'), 10);
+        let currentQty = !isNaN(parsedQty) ? parsedQty : 1;
         currentQty += change;
         if (currentQty < 1) currentQty = 1;
         
@@ -91,10 +90,11 @@ window.UIJastip = {
         
         cards.forEach(card => {
             const name = card.querySelector('.jastip-val-name').value.trim();
-            const price = parseInt(card.querySelector('.jastip-val-price').value) || 0;
-            const qty = parseInt(card.querySelector('.jastip-qty-value').getAttribute('data-val')) || 1;
+            const parsedPrice = parseInt(card.querySelector('.jastip-val-price').value, 10);
+            const price = !isNaN(parsedPrice) ? parsedPrice : 0;
+            const parsedQty = parseInt(card.querySelector('.jastip-qty-value').getAttribute('data-val'), 10);
+            const qty = !isNaN(parsedQty) ? parsedQty : 1;
             
-            // FIX TAHAP 4: Menggunakan operator && agar nama dan harga wajib diisi
             if (name !== '' && price > 0) {
                 items.push({ name: name, price: price, qty: qty, subtotal: price * qty });
             }
