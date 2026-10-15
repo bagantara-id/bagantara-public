@@ -57,7 +57,7 @@ window.ChatHandshake = {
         const wBtns = window.BGN_CONFIG?.wording?.buttons || {};
         
         if (wadahChat) {
-             const txtTunggu = wAlerts.chat_waiting || "⏳ Menunggu persetujuan pengemudi...";
+             const txtTunggu = wAlerts.chat_waiting || "⏳ Menunggu persetujuan driver...";
              const txtBatal = wBtns.cancel_search || "Batalkan & Cari Lain";
              
              const htmlTunggu = `
@@ -93,43 +93,29 @@ window.ChatHandshake = {
             });
 
             // =========================================================================
-            // INJEKSI MICRO-BACKEND (GOOGLE APPS SCRIPT) & PENGAMANAN REST API
+            // INJEKSI MICRO-BACKEND (ZERO FIRESTORE READ - AMBIL DARI CACHE RTDB)
             // =========================================================================
             try {
-                // FIX TAHAP 2: Ambil API Key agar tidak diblokir (403 Forbidden)
-                const projectId = window.BGN_CONFIG?.settings?.firebase_core?.firestore_project_id || "bagantara-core";
-                const apiKey = window.BGN_CONFIG?.settings?.firebase_core?.apiKey || "";
-                
-                const keyParam = apiKey ? `?key=${apiKey}` : "";
-                const urlFirestore = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/drivers/${uidDriver}${keyParam}`;
-                
-                const resDriver = await fetch(urlFirestore);
-                if (resDriver.ok) {
-                    const dataDriver = await resDriver.json();
-                    const fcmTokenDriver = dataDriver.fields?.fcmToken?.stringValue;
+                const fcmTokenDriver = window.BAGANTARA_DRIVER?.fcmToken || window.BAGANTARA_DRIVER_CACHE?.[uidDriver]?.fcmToken || "";
+                const urlGAS = window.BGN_CONFIG?.settings?.micro_backend?.gas_fcm_url;
 
-                    if (fcmTokenDriver) {
-                        console.log("[SISTEM] FCM Driver ditemukan. Menyerahkan ke Micro-Backend...");
-
-                        // PASTE LINK WEB APP DARI TAHAP 3 KE DALAM TANDA KUTIP DI BAWAH INI
-                        const urlGAS = "https://script.google.com/macros/s/AKfycbwrSVvFIsbGL1SE-F9G64bRyXtofpjEn0AiZ8Y2grf71EnSBm1POpK55jsmkAG19UBNpw/exec";
-
-                        fetch(urlGAS, {
-                            method: 'POST',
-                            mode: 'no-cors',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                fcmToken: fcmTokenDriver,
-                                title: "🚨 PESANAN BARU MASUK!",
-                                body: `Layanan ${payloadTiket.layanan} dari ${payloadTiket.nama_klien}`
-                            })
-                        }).catch(e => console.warn("Latar belakang GAS terpicu."));
-                    }
-                } else {
-                    console.warn("[FCM] Firestore menolak akses (Mungkin aturan keamanan aktif). Lanjut tanpa Push Notifikasi.");
+                // SINKRONISASI V7: Tetap panggil urlGAS dengan uidDriver meskipun fcmToken disimpan terisolasi di Firestore /fcm_tokens/{uidDriver}
+                if (uidDriver && urlGAS) {
+                    fetch(urlGAS, {
+                        method: 'POST',
+                        mode: 'no-cors',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            fcmToken: fcmTokenDriver,
+                            idTiket: idTiketAktif,
+                            uidDriver: uidDriver,
+                            title: "PESANAN BARU MASUK!",
+                            body: `Layanan ${payloadTiket.layanan} dari ${payloadTiket.nama_klien} (Rp${(payloadTiket.harga_tawaran || 0).toLocaleString('id-ID')})`
+                        })
+                    }).catch(() => {});
                 }
             } catch (fcmError) {
-                console.warn("[FCM] Gagal mengirim Push Notifikasi, order RTDB tetap jalan.", fcmError);
+                console.warn("[FCM] Gagal memicu Push Notifikasi, order RTDB tetap jalan.");
             }
             // =========================================================================
             
@@ -140,7 +126,7 @@ window.ChatHandshake = {
             
             this.timeoutPesanan = setTimeout(() => {
                 if (!isAccepted) {
-                    this.batalkanSesi(wAlerts.chat_timeout_driver || "Pengemudi tidak merespons. Silakan cari mitra lain.");
+                    this.batalkanSesi(wAlerts.chat_timeout_driver || "Driver tidak merespons. Silakan pilih driver lain.");
                 }
             }, timeoutDriverMs);
 
@@ -150,7 +136,7 @@ window.ChatHandshake = {
                 if (!data) {
                     if (!isAccepted) {
                         clearTimeout(this.timeoutPesanan);
-                        this.batalkanSesi(wAlerts.chat_ticket_rejected || "Tiket ditolak oleh Pengemudi atau kadaluwarsa.");
+                        this.batalkanSesi(wAlerts.chat_ticket_rejected || "Pesanan ditolak oleh Driver atau kadaluwarsa.");
                     }
                     return;
                 }
@@ -178,7 +164,7 @@ window.ChatHandshake = {
                     const alertElem = document.getElementById('cyber-alert');
                     if (alertElem) alertElem.classList.add('hidden');
                     if (wadahChat) {
-                        const txtSukses = wAlerts.chat_connected || "✅ Pengemudi terhubung! Pesanan dikunci.";
+                        const txtSukses = wAlerts.chat_connected || "✅ Driver terhubung! Pesanan dikunci.";
                         wadahChat.insertAdjacentHTML('beforeend', `<div style="text-align:center; color:#10b981; font-size:0.75rem; margin-top:10px; font-weight:bold;">${txtSukses}</div>`);
                         wadahChat.scrollTo({ top: wadahChat.scrollHeight, behavior: 'smooth' });
                     }
@@ -333,44 +319,10 @@ window.ChatHandshake = {
             }
 
             try {
-                const getIP = () => Promise.race([ fetch('https://api.ipify.org?format=json').then(r => r.json()).then(d => d.ip), new Promise(r => setTimeout(() => r("Gagal memuat"), 3000)) ]).catch(() => "Gagal memuat");
-                const getGPS = () => new Promise((resolve) => {
-                    if (!navigator.geolocation) return resolve("GPS_TIDAK_DIDUKUNG");
-                    navigator.geolocation.getCurrentPosition(
-                        pos => resolve(`https://www.google.com/maps/search/?api=1&query=${pos.coords.latitude.toFixed(6)},${pos.coords.longitude.toFixed(6)}`),
-                        err => resolve("AKSES_GPS_DITOLAK"),
-                        { enableHighAccuracy: true, timeout: 3000, maximumAge: 15000 }
-                    );
-                });
-
-                const [resIp, resGps] = await Promise.allSettled([getIP(), getGPS()]);
-                const ipPublik = resIp.status === 'fulfilled' ? resIp.value : "Gagal memuat";
-                const lokasiFaktual = resGps.status === 'fulfilled' ? resGps.value : "Gagal memuat";
-                
-                const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-                const infoJaringan = conn ? `${conn.effectiveType || 'N/A'} (${conn.downlink || 0}Mbps)` : "N/A";
-                const ram = navigator.deviceMemory ? `${navigator.deviceMemory}GB+` : "N/A";
-                const cpu = navigator.hardwareConcurrency ? `${navigator.hardwareConcurrency} Core` : "N/A";
-
-                let dataExifAsli = null;
-                if (asalTangkapan === "Galeri Perangkat") {
-                    try {
-                        const exifr = await import('https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/lite.esm.js');
-                        const exifData = await exifr.default.parse(file);
-                        if (exifData) {
-                            let linkPetaExif = "Tidak tersimpan di gambar";
-                            if (exifData.latitude && exifData.longitude) linkPetaExif = `https://www.google.com/maps/search/?api=1&query=${exifData.latitude.toFixed(6)},${exifData.longitude.toFixed(6)}`;
-                            dataExifAsli = {
-                                kamera: (exifData.Make || exifData.Model) ? `${exifData.Make || ''} ${exifData.Model || ''}`.trim() : "Tidak diketahui",
-                                waktu_diambil: exifData.DateTimeOriginal ? new Date(exifData.DateTimeOriginal).toLocaleString('id-ID') : "Tidak diketahui",
-                                lokasi_asli: linkPetaExif
-                            };
-                        }
-                    } catch(e) {}
-                }
-
-                const dataForensik = { sumber: asalTangkapan, ip: ipPublik, jaringan: infoJaringan, ram_cpu: `${ram} / ${cpu}`, lokasi: lokasiFaktual, browser: navigator.userAgent.substring(0, 50) + "..." };
-                if (dataExifAsli) dataForensik.exif = dataExifAsli;
+                const dataForensik = {
+                    sumber: asalTangkapan,
+                    waktu_unggah: Date.now()
+                };
 
                 const fileTerkompresi = await new Promise((resolve) => {
                     if (!file.type.startsWith('image/')) return resolve(file);
@@ -433,11 +385,11 @@ window.ChatHandshake = {
                     setTimeout(() => {
                         panel.style.display = 'none'; 
                         
-                        // FIX UX: Paksa layar belakang pindah ke Peta agar tidak melihat daftar driver usang
+                        // FIX UX V7: Kembalikan ke Beranda Katalog Driver agar tidak terlempar ke peta kosong
                         if (window.spaNavigateTo) {
-                            window.spaNavigateTo('view-map');
+                            window.spaNavigateTo('view-mitra-map');
                             const orderPanel = document.getElementById('dynamicOrderPanel');
-                            if (orderPanel) orderPanel.style.display = 'block';
+                            if (orderPanel) orderPanel.style.display = 'none';
                         }
                         
                         if (window.periksaSesiChatAktif) window.periksaSesiChatAktif();
@@ -832,7 +784,7 @@ window.ChatHandshake = {
             if (snapshot.exists()) {
                 ruangSudahAda = true;
             } else if (!snapshot.exists() && ruangSudahAda) {
-                const txtEnded = window.BGN_CONFIG?.wording?.alerts?.chat_ended || "Sesi telah diselesaikan atau diakhiri oleh Pengemudi.";
+                const txtEnded = window.BGN_CONFIG?.wording?.alerts?.chat_ended || "Sesi telah diselesaikan atau diakhiri oleh Driver.";
                 this.kematianSesiPaksa(txtEnded);
             }
         });
@@ -851,7 +803,7 @@ window.ChatHandshake = {
                 const uiTunggu = document.getElementById('ui-tunggu-acc');
                 if (uiTunggu) uiTunggu.remove();
 
-                const msgTolak = window.BGN_CONFIG?.wording?.alerts?.chat_driver_unavailable || "Mohon maaf, pengemudi tidak dapat menerima pesanan Anda saat ini. Silakan mencari driver lain.";
+                const msgTolak = window.BGN_CONFIG?.wording?.alerts?.chat_driver_unavailable || "Mohon maaf, driver tidak dapat menerima pesanan Anda saat ini. Silakan pilih driver lain.";
                 this.batalkanSesi(msgTolak);
                 return; 
             }
@@ -921,7 +873,7 @@ window.ChatHandshake = {
                     const labelHargaBawah = isJastip ? "ESTIMASI ONGKIR & JASA" : "TOTAL ESTIMASI TARIF";
 
                     htmlKonten = `
-                        <div style="background:#0f1624; border:1px solid ${warnaLayanan}; border-radius:12px; padding:12px; width:240px; display:flex; flex-direction:column; gap:6px; box-shadow:0 8px 20px rgba(0,0,0,0.4);">
+                        <div style="background:#0f1624; border:1px solid ${warnaLayanan}; border-radius:12px; padding:12px; width:min(255px, 76vw); display:flex; flex-direction:column; gap:6px; box-shadow:0 8px 20px rgba(0,0,0,0.4);">
                             <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:6px;">
                                 <span style="font-size:0.65rem; color:${warnaLayanan}; font-weight:900; letter-spacing:1px;"><i class="fa-solid fa-receipt mr-1"></i> ORDER: ${k.layanan}</span>
                                 <span style="font-size:0.65rem; color:#94a3b8; font-family:monospace;">${k.jarak} KM</span>
@@ -991,7 +943,8 @@ window.ChatHandshake = {
                     : `<i class="fa-solid fa-check" style="color: #9ca3af; font-size: 0.65rem;"></i>`;
             }
 
-            const htmlElemen = `<div id="${idUnik}" class="msg-bubble ${posisiKelas}"><div class="msg-content">${htmlKonten}</div><span class="msg-time" style="display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-top: 2px;">${new Date(pesan.waktu).toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit'})}${statusIkon}</span></div>`;
+            const extraCardClass = (pesan.tipe === "katalog_order" || pesan.tipe === "lokasi" || pesan.tipe === "gambar") ? " msg-katalog-card" : "";
+            const htmlElemen = `<div id="${idUnik}" class="msg-bubble ${posisiKelas}${extraCardClass}"><div class="msg-content">${htmlKonten}</div><span class="msg-time" style="display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-top: 2px;">${new Date(pesan.waktu).toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit'})}${statusIkon}</span></div>`;
             
             wadahChat.insertAdjacentHTML('beforeend', htmlElemen);
             
