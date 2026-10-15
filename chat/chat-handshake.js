@@ -1,21 +1,114 @@
 // ==========================================================================
-// FILE: chat/chat-handshake.js (APLIKASI PUBLIK / KLIEN)
-// FUNGSI: Protokol Handshake, Transmisi Pesan P2P, & SINKRONISASI INBOX DRIVER
-// ARSITEKTUR: MURNI DELEGASI ES6 (ZERO HARDCODE & ZERO FALLBACK)
+// FILE: chat/chat-handshake.js (APLIKASI PUBLIK / KLIEN - V8 FINAL)
+// FUNGSI: Protokol Handshake REST RTDB Ke-3 (futaqi-ali), Chat P2P (chatting-88040),
+//         Preservasi Uang Tip 100%, Manajemen goOnline/goOffline, & Sanitasi Anti-XSS
+// ARSITEKTUR: MURNI DELEGASI ES6 (100% ZERO HARDCODE & ZERO FALLBACK)
 // ==========================================================================
 
-import { dbChat, initFirebaseChat } from './config-chat.js';
+import { dbChat, initFirebaseChat, getRadarDatabaseUrl } from './config-chat.js';
 import { uploadMediaKeCloudinary } from './cloud-media.js';
 import { ref, push, set, onValue, onChildAdded, onChildChanged, remove, update, goOnline, goOffline } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
 
 let idTiketAktif = null;
 let uidPengemudiTarget = null;
+let payloadTiketAktif = null;
 let pemantauPesan = null;
-let pemantauStatus = null;
+let pemantauMetadataOrder = null;
+let timerPollingRadar = null;
+let timerPemutusKoneksi = null;
 let perakamAudio = null;
 let potonganAudio = [];
 
+export function escapeHTML(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function sanitizeMediaUrl(url) {
+    if (!url) return '';
+    const trimmed = String(url).trim();
+    if (/^https:\/\//i.test(trimmed)) return escapeHTML(trimmed);
+    return '';
+}
+
 window.ChatHandshake = {
+    escapeHTML: escapeHTML,
+
+    aktifkanKoneksiChat: function() {
+        clearTimeout(timerPemutusKoneksi);
+        if (dbChat) {
+            try { goOnline(dbChat); } catch (e) {}
+        }
+    },
+
+    putuskanKoneksiChat: function() {
+        clearTimeout(timerPemutusKoneksi);
+        if (dbChat) {
+            try { goOffline(dbChat); } catch (e) {}
+        }
+    },
+
+    _hentikanPollingRadar: function() {
+        if (timerPollingRadar) {
+            clearInterval(timerPollingRadar);
+            timerPollingRadar = null;
+        }
+    },
+
+    _tembakRadarTiketREST: async function(uidDriver, idTiket, dataTiket) {
+        const radarBaseUrl = getRadarDatabaseUrl();
+        if (!radarBaseUrl || !uidDriver || !idTiket) throw new Error("Konfigurasi firebase_radar belum tersedia");
+        const timeoutMs = window.BGN_CONFIG.rules_app.chat_controls.radar_fetch_timeout_ms;
+        const controller = new AbortController();
+        const tid = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+            const url = `${radarBaseUrl}/radar_tiket/${encodeURIComponent(uidDriver)}/${encodeURIComponent(idTiket)}.json`;
+            const res = await fetch(url, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(dataTiket),
+                signal: controller.signal
+            });
+            clearTimeout(tid);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            return true;
+        } catch (err) {
+            clearTimeout(tid);
+            throw err;
+        }
+    },
+
+    _bacaRadarTiketREST: async function(uidDriver, idTiket) {
+        const radarBaseUrl = getRadarDatabaseUrl();
+        if (!radarBaseUrl || !uidDriver || !idTiket) return undefined;
+        const timeoutMs = window.BGN_CONFIG.rules_app.chat_controls.radar_fetch_timeout_ms;
+        const controller = new AbortController();
+        const tid = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+            const url = `${radarBaseUrl}/radar_tiket/${encodeURIComponent(uidDriver)}/${encodeURIComponent(idTiket)}.json`;
+            const res = await fetch(url, { method: 'GET', cache: 'no-store', signal: controller.signal });
+            clearTimeout(tid);
+            if (!res.ok) return undefined;
+            return await res.json();
+        } catch (err) {
+            clearTimeout(tid);
+            return undefined;
+        }
+    },
+
+    _hapusRadarTiketREST: async function(uidDriver, idTiket) {
+        const radarBaseUrl = getRadarDatabaseUrl();
+        if (!radarBaseUrl || !uidDriver || !idTiket) return;
+        try {
+            const url = `${radarBaseUrl}/radar_tiket/${encodeURIComponent(uidDriver)}/${encodeURIComponent(idTiket)}.json`;
+            await fetch(url, { method: 'DELETE' });
+        } catch (e) {}
+    },
     
     pulihkanSesiAktif: async function() {
         await initFirebaseChat();
@@ -25,82 +118,112 @@ window.ChatHandshake = {
                 const sesi = JSON.parse(sesiTersimpan);
                 idTiketAktif = sesi.idTiket;
                 uidPengemudiTarget = sesi.uidDriver;
+                payloadTiketAktif = sesi.payloadTiket ? sesi.payloadTiket : null;
                 if (sesi.noWa) window.BAGANTARA_DRIVER = { uid: sesi.uidDriver, wa: sesi.noWa };
-                this.bukaRuangKomunikasi(true); 
+                this.aktifkanKoneksiChat();
+                this.bukaRuangKomunikasi(true, payloadTiketAktif); 
             } catch(e) {
                 localStorage.removeItem('bgt_active_chat');
+                this.putuskanKoneksiChat();
             }
+        } else {
+            this.putuskanKoneksiChat();
         }
     },
 
     ajukanTawaran: async function(uidDriver, payloadTiket) {
         if (idTiketAktif) return; 
         
-        await initFirebaseChat(); 
+        await initFirebaseChat();
+        this.aktifkanKoneksiChat();
 
         let deviceId = localStorage.getItem('bgt_device_id');
         if (!deviceId) {
-            deviceId = 'DEV_' + Date.now() + '_' + Math.random().toString(36).substring(2,7);
+            deviceId = 'DEV_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
             localStorage.setItem('bgt_device_id', deviceId);
         }
 
         uidPengemudiTarget = uidDriver;
-        idTiketAktif = `TKT_${Date.now()}_${Math.random().toString(36).substring(2,7)}`;
+        idTiketAktif = `TKT_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        payloadTiketAktif = { ...payloadTiket };
         
-        this.bukaRuangKomunikasi();
+        // Teruskan payloadTiketAktif secara langsung agar nominalTip tidak pernah hilang (Rp 0)
+        this.bukaRuangKomunikasi(false, payloadTiketAktif);
         
-        const referensiTiket = ref(dbChat, `radar_tiket/${uidDriver}/${idTiketAktif}`);
         const referensiInbox = ref(dbChat, `inbox_mitra/${uidDriver}/${idTiketAktif}`);
+        const referensiMetadata = ref(dbChat, `sesi_komunikasi/${idTiketAktif}/metadata_order`);
 
         const wadahChat = document.querySelector('.tpl-chat-body');
-        const wAlerts = window.BGN_CONFIG?.wording?.alerts || {};
-        const wBtns = window.BGN_CONFIG?.wording?.buttons || {};
+        const wAlerts = window.BGN_CONFIG.wording.alerts;
+        const wBtns = window.BGN_CONFIG.wording.buttons;
+        const wChat = window.BGN_CONFIG.wording.chat_system;
+        const wTemplates = window.BGN_CONFIG.wording.templates;
+        const mapCfg = window.BGN_CONFIG.settings.map_config;
+        const chatCtrl = window.BGN_CONFIG.rules_app.chat_controls;
         
         if (wadahChat) {
-             const txtTunggu = wAlerts.chat_waiting || "⏳ Menunggu persetujuan driver...";
-             const txtBatal = wBtns.cancel_search || "Batalkan & Cari Lain";
-             
-             const htmlTunggu = `
+            const txtTunggu = escapeHTML(wAlerts.chat_waiting);
+            const txtBatal = escapeHTML(wBtns.cancel_search);
+            
+            const htmlTunggu = `
                 <div id="ui-tunggu-acc" style="text-align:center; margin-top:15px; display:flex; flex-direction:column; gap:10px; align-items:center;">
                     <div style="color:#ceab6b; font-size:0.75rem; font-weight:bold;">${txtTunggu}</div>
                     <button id="btnBatalMandiri" style="background:rgba(239, 68, 68, 0.1); border:1px solid #ef4444; color:#ef4444; padding:8px 16px; border-radius:8px; font-size:0.7rem; font-weight:bold; cursor:pointer;">${txtBatal}</button>
                 </div>
-             `;
-             wadahChat.insertAdjacentHTML('beforeend', htmlTunggu);
-             
-             document.getElementById('btnBatalMandiri').addEventListener('click', () => {
-                 this.batalkanSesi(wAlerts.chat_cancel_manual || "Pesanan dibatalkan secara mandiri.");
-             });
+            `;
+            wadahChat.insertAdjacentHTML('beforeend', htmlTunggu);
+            
+            document.getElementById('btnBatalMandiri').addEventListener('click', () => {
+                this.batalkanSesi(wAlerts.chat_cancel_manual);
+            });
         }
         
-        const noWaKlien = document.getElementById('inputClientWA')?.value?.trim() || "";
+        const waktuDibuat = Date.now();
+        const dataRadarTiket = {
+            ...payloadTiketAktif,
+            device_id: deviceId,
+            waktu_dibuat: waktuDibuat,
+            status: 'WAITING'
+        };
 
         try {
-            await set(referensiTiket, {
-                ...payloadTiket,
-                device_id: deviceId,
-                wa_klien: noWaKlien,
-                waktu_dibuat: Date.now(),
-                status: 'WAITING'
+            // 1. Tembakkan sinyal radar_tiket ke RTDB Ke-3 (futaqi-ali) murni via REST API fetch (0 WebSocket Penumpang)
+            await this._tembakRadarTiketREST(uidDriver, idTiketAktif, dataRadarTiket);
+
+            // 2. Tulis metadata_order & inbox_mitra di RTDB Chat (chatting-88040)
+            await set(referensiMetadata, {
+                status: 'WAITING',
+                waktu_dibuat: waktuDibuat,
+                uid_driver: uidDriver,
+                nama_klien: payloadTiketAktif.nama_klien ? payloadTiketAktif.nama_klien : wChat.default_client_name,
+                wa_klien: payloadTiketAktif.wa_klien ? payloadTiketAktif.wa_klien : "",
+                layanan: payloadTiketAktif.layanan ? payloadTiketAktif.layanan : wChat.default_order_type,
+                harga_tawaran: payloadTiketAktif.harga_tawaran,
+                harga_dasar: payloadTiketAktif.harga_dasar,
+                tip_nominal: payloadTiketAktif.tip_nominal
             });
 
             await set(referensiInbox, {
-                nama_klien: payloadTiket.nama_klien || "Penumpang",
-                layanan: payloadTiket.layanan || "ORDER",
-                pesan_terakhir: "Katalog pesanan masuk...",
-                waktu_dibuat: Date.now(),
-                waktu_update: Date.now()
+                nama_klien: payloadTiketAktif.nama_klien ? payloadTiketAktif.nama_klien : wChat.default_client_name,
+                layanan: payloadTiketAktif.layanan ? payloadTiketAktif.layanan : wChat.default_order_type,
+                pesan_terakhir: wChat.inbox_initial_preview,
+                waktu_dibuat: waktuDibuat,
+                waktu_update: waktuDibuat
             });
 
-            // =========================================================================
-            // INJEKSI MICRO-BACKEND (ZERO FIRESTORE READ - AMBIL DARI CACHE RTDB)
-            // =========================================================================
+            // 3. Pemicu Micro-Backend GAS FCM HTTP v1 (Dual-Resolver Firestore /fcm_tokens/{uidDriver})
             try {
-                const fcmTokenDriver = window.BAGANTARA_DRIVER?.fcmToken || window.BAGANTARA_DRIVER_CACHE?.[uidDriver]?.fcmToken || "";
-                const urlGAS = window.BGN_CONFIG?.settings?.micro_backend?.gas_fcm_url;
+                const fcmTokenDriver = window.BAGANTARA_DRIVER?.fcmToken
+                    ? window.BAGANTARA_DRIVER.fcmToken
+                    : (window.BAGANTARA_DRIVER_CACHE?.[uidDriver]?.fcmToken ? window.BAGANTARA_DRIVER_CACHE[uidDriver].fcmToken : "");
+                const urlGAS = window.BGN_CONFIG.settings.micro_backend.gas_fcm_url;
 
-                // SINKRONISASI V7: Tetap panggil urlGAS dengan uidDriver meskipun fcmToken disimpan terisolasi di Firestore /fcm_tokens/{uidDriver}
                 if (uidDriver && urlGAS) {
+                    const fcmBody = wChat.fcm_new_order_body_template
+                        .replace('{layanan}', payloadTiketAktif.layanan)
+                        .replace('{nama}', payloadTiketAktif.nama_klien)
+                        .replace('{harga}', (payloadTiketAktif.harga_tawaran).toLocaleString('id-ID'));
+
                     fetch(urlGAS, {
                         method: 'POST',
                         mode: 'no-cors',
@@ -109,90 +232,148 @@ window.ChatHandshake = {
                             fcmToken: fcmTokenDriver,
                             idTiket: idTiketAktif,
                             uidDriver: uidDriver,
-                            title: "PESANAN BARU MASUK!",
-                            body: `Layanan ${payloadTiket.layanan} dari ${payloadTiket.nama_klien} (Rp${(payloadTiket.harga_tawaran || 0).toLocaleString('id-ID')})`
+                            layanan: payloadTiketAktif.layanan,
+                            harga: payloadTiketAktif.harga_tawaran,
+                            tip: payloadTiketAktif.tip_nominal,
+                            title: wChat.fcm_new_order_title,
+                            body: fcmBody
                         })
                     }).catch(() => {});
                 }
             } catch (fcmError) {
                 console.warn("[FCM] Gagal memicu Push Notifikasi, order RTDB tetap jalan.");
             }
-            // =========================================================================
             
             let isAccepted = false;
+
+            const kunciSesiSaatDiterima = () => {
+                if (isAccepted) return;
+                isAccepted = true;
+                clearTimeout(this.timeoutPesanan);
+                this._hentikanPollingRadar();
+
+                // Bersihkan umpan dari RTDB ke-3 (futaqi-ali) karena sesi sudah terhubung
+                this._hapusRadarTiketREST(uidPengemudiTarget, idTiketAktif);
+
+                const uiTunggu = document.getElementById('ui-tunggu-acc');
+                if (uiTunggu) uiTunggu.remove();
+
+                const waDriver = window.BAGANTARA_DRIVER ? window.BAGANTARA_DRIVER.wa : "";
+                localStorage.setItem('bgt_active_chat', JSON.stringify({
+                    idTiket: idTiketAktif,
+                    uidDriver: uidPengemudiTarget,
+                    noWa: waDriver,
+                    payloadTiket: payloadTiketAktif
+                }));
+                
+                const btnWa = document.querySelector('.tpl-btn-wa-driver');
+                if (btnWa && waDriver) {
+                    btnWa.classList.remove('hidden-state');
+                    const newBtnWa = btnWa.cloneNode(true);
+                    btnWa.parentNode.replaceChild(newBtnWa, btnWa);
+                    newBtnWa.addEventListener('click', () => {
+                        const msgAcc = `${wTemplates.wa_driver_greeting_acc} ${idTiketAktif.substring(0, 8)}`;
+                        window.open(`${mapCfg.whatsapp_base_url}${waDriver}?text=${encodeURIComponent(msgAcc)}`, '_blank');
+                    });
+                }
+
+                const alertElem = document.getElementById('cyber-alert');
+                if (alertElem) alertElem.classList.add('hidden');
+                if (wadahChat) {
+                    const txtSukses = escapeHTML(wAlerts.chat_connected);
+                    wadahChat.insertAdjacentHTML('beforeend', `<div style="text-align:center; color:#10b981; font-size:0.75rem; margin-top:10px; font-weight:bold;">${txtSukses}</div>`);
+                    wadahChat.scrollTo({ top: wadahChat.scrollHeight, behavior: 'smooth' });
+                }
+
+                if (window.periksaSesiChatAktif) window.periksaSesiChatAktif();
+            };
             
-            // FIX TAHAP 2: FALLBACK TIMEOUT 30 DETIK (Hindari Undefined Phantom Timeout)
-            const timeoutDriverMs = window.BGN_CONFIG?.rules_app?.chat_controls?.driver_response_timeout_ms || 30000;
+            const timeoutDriverMs = chatCtrl.driver_response_timeout_ms;
             
             this.timeoutPesanan = setTimeout(() => {
                 if (!isAccepted) {
-                    this.batalkanSesi(wAlerts.chat_timeout_driver || "Driver tidak merespons. Silakan pilih driver lain.");
+                    this.batalkanSesi(wAlerts.chat_timeout_driver);
                 }
             }, timeoutDriverMs);
 
-            pemantauStatus = onValue(referensiTiket, (snapshot) => {
-                const data = snapshot.val();
-                
-                if (!data) {
+            // A. Pantau perubahan metadata_order di dbChat (chatting-88040)
+            if (pemantauMetadataOrder) pemantauMetadataOrder();
+            pemantauMetadataOrder = onValue(referensiMetadata, (snapshot) => {
+                const meta = snapshot.val();
+                if (!meta) return;
+                if (meta.status === 'ACCEPTED') {
+                    kunciSesiSaatDiterima();
+                } else if (meta.status === 'REJECTED') {
                     if (!isAccepted) {
                         clearTimeout(this.timeoutPesanan);
-                        this.batalkanSesi(wAlerts.chat_ticket_rejected || "Pesanan ditolak oleh Driver atau kadaluwarsa.");
+                        this._hentikanPollingRadar();
+                        this.batalkanSesi(wAlerts.chat_ticket_rejected);
+                    }
+                }
+            });
+
+            // B. Polling ringan REST GET ke RTDB Ke-3 (futaqi-ali) (0 WebSocket Penumpang)
+            const pollIntervalMs = chatCtrl.radar_poll_interval_ms;
+            this._hentikanPollingRadar();
+            timerPollingRadar = setInterval(async () => {
+                if (isAccepted || !idTiketAktif || !uidPengemudiTarget) {
+                    this._hentikanPollingRadar();
+                    return;
+                }
+                const dataRadar = await this._bacaRadarTiketREST(uidPengemudiTarget, idTiketAktif);
+                if (dataRadar === undefined) return; // Abaikan error jaringan sesaat
+
+                if (dataRadar === null) {
+                    // Jika node di futaqi-ali dihapus oleh Driver, cek apakah sudah ACCEPTED atau ditolak
+                    if (!isAccepted) {
+                        clearTimeout(this.timeoutPesanan);
+                        this._hentikanPollingRadar();
+                        this.batalkanSesi(wAlerts.chat_ticket_rejected);
                     }
                     return;
                 }
-                
-                if (data.status === 'ACCEPTED') {
-                    isAccepted = true;
+
+                if (dataRadar.status === 'ACCEPTED') {
+                    kunciSesiSaatDiterima();
+                } else if (dataRadar.status === 'REJECTED') {
                     clearTimeout(this.timeoutPesanan);
-                    
-                    const uiTunggu = document.getElementById('ui-tunggu-acc');
-                    if (uiTunggu) uiTunggu.remove();
-
-                    const waDriver = window.BAGANTARA_DRIVER ? window.BAGANTARA_DRIVER.wa : "";
-                    localStorage.setItem('bgt_active_chat', JSON.stringify({ idTiket: idTiketAktif, uidDriver: uidPengemudiTarget, noWa: waDriver }));
-                    
-                    const btnWa = document.querySelector('.tpl-btn-wa-driver');
-                    if (btnWa && waDriver) {
-                        btnWa.classList.remove('hidden-state');
-                        const newBtnWa = btnWa.cloneNode(true);
-                        btnWa.parentNode.replaceChild(newBtnWa, btnWa);
-                        newBtnWa.addEventListener('click', () => {
-                            window.open(`https://wa.me/${waDriver}?text=Halo,%20saya%20penumpang%20Bagantara%20dengan%20ID%20Tiket:%20${idTiketAktif.substring(0,8)}`, '_blank');
-                        });
-                    }
-
-                    const alertElem = document.getElementById('cyber-alert');
-                    if (alertElem) alertElem.classList.add('hidden');
-                    if (wadahChat) {
-                        const txtSukses = wAlerts.chat_connected || "✅ Driver terhubung! Pesanan dikunci.";
-                        wadahChat.insertAdjacentHTML('beforeend', `<div style="text-align:center; color:#10b981; font-size:0.75rem; margin-top:10px; font-weight:bold;">${txtSukses}</div>`);
-                        wadahChat.scrollTo({ top: wadahChat.scrollHeight, behavior: 'smooth' });
-                    }
-
-                    if (window.periksaSesiChatAktif) window.periksaSesiChatAktif();
+                    this._hentikanPollingRadar();
+                    this.batalkanSesi(wAlerts.chat_ticket_rejected);
                 }
-            });
+            }, pollIntervalMs);
+
         } catch (error) {
             console.error("Gagal menembak database:", error);
-            this.batalkanSesi(window.BGN_CONFIG?.wording?.alerts?.chat_conn_failed || "Gagal mengirim koneksi ke server.");
+            this.batalkanSesi(wAlerts.chat_conn_failed);
         }
     },
 
-    batalkanSesi: function(pesanAlert) {
+    batalkanSesi: async function(pesanAlert) {
         if (this.timeoutPesanan) { clearTimeout(this.timeoutPesanan); this.timeoutPesanan = null; }
         if (this.timeoutKatalog) { clearTimeout(this.timeoutKatalog); this.timeoutKatalog = null; }
         if (this.intervalRekamanGlobal) { clearInterval(this.intervalRekamanGlobal); this.intervalRekamanGlobal = null; }
         if (perakamAudio && perakamAudio.state === "recording") { perakamAudio.stop(); }
 
-        if (pemantauStatus) { pemantauStatus(); pemantauStatus = null; }
+        this._hentikanPollingRadar();
+        if (pemantauMetadataOrder) { pemantauMetadataOrder(); pemantauMetadataOrder = null; }
         if (pemantauPesan) { pemantauPesan(); pemantauPesan = null; }
         if (this.pemantauRuang) { this.pemantauRuang(); this.pemantauRuang = null; }
         if (this.pemantauPesanUbah) { this.pemantauPesanUbah(); this.pemantauPesanUbah = null; }
 
-        if (uidPengemudiTarget && idTiketAktif) {
-            remove(ref(dbChat, `radar_tiket/${uidPengemudiTarget}/${idTiketAktif}`));
-            remove(ref(dbChat, `inbox_mitra/${uidPengemudiTarget}/${idTiketAktif}`));
-            remove(ref(dbChat, `sesi_komunikasi/${idTiketAktif}`));
+        const targetUid = uidPengemudiTarget;
+        const targetTiket = idTiketAktif;
+
+        idTiketAktif = null;
+        uidPengemudiTarget = null;
+        payloadTiketAktif = null;
+        localStorage.removeItem('bgt_active_chat');
+
+        if (targetUid && targetTiket) {
+            await Promise.allSettled([
+                this._hapusRadarTiketREST(targetUid, targetTiket),
+                dbChat ? remove(ref(dbChat, `inbox_mitra/${targetUid}/${targetTiket}`)) : Promise.resolve(),
+                dbChat ? remove(ref(dbChat, `sesi_komunikasi/${targetTiket}`)) : Promise.resolve()
+            ]);
         }
         
         if (this._handleMovePersisten) {
@@ -204,8 +385,8 @@ window.ChatHandshake = {
             document.removeEventListener('touchend', this._handleEndPersisten);
         }
 
-        idTiketAktif = null;
-        uidPengemudiTarget = null;
+        // WAJIB PUTUS KONEKSI WEBSOCKET SAAT SESI DIBATALKAN
+        this.putuskanKoneksiChat();
 
         if (window.periksaSesiChatAktif) window.periksaSesiChatAktif();
         
@@ -215,13 +396,21 @@ window.ChatHandshake = {
             setTimeout(() => panel.remove(), 300);
         }
         
-        if (window.UIManager) window.UIManager.alert(pesanAlert);
+        if (window.UIManager && pesanAlert) window.UIManager.alert(pesanAlert);
         if (window.SystemReset) window.SystemReset();
     },
 
-    bukaRuangKomunikasi: function(isRecovery = false) {
+    bukaRuangKomunikasi: function(isRecovery = false, orderPayload = null) {
         const panelLama = document.getElementById('panel-komunikasi-utama');
         if (panelLama) panelLama.remove();
+
+        const wChat = window.BGN_CONFIG.wording.chat_system;
+        const wAlerts = window.BGN_CONFIG.wording.alerts;
+        const wTemplates = window.BGN_CONFIG.wording.templates;
+        const wPopup = window.BGN_CONFIG.wording.mitra_popup;
+        const wPins = window.BGN_CONFIG.wording.map_pins;
+        const chatCtrl = window.BGN_CONFIG.rules_app.chat_controls;
+        const mapCfg = window.BGN_CONFIG.settings.map_config;
 
         if (!document.getElementById('modal-fullscreen-img')) {
             const htmlTambahan = `
@@ -239,7 +428,7 @@ window.ChatHandshake = {
         const clone = template.content.cloneNode(true);
         
         const titleEl = clone.querySelector('.tpl-chat-title');
-        titleEl.textContent = `Sesi: ${idTiketAktif.substring(0,8)}`;
+        titleEl.textContent = `${wChat.session_title_prefix} ${idTiketAktif.substring(0, 8)}`;
 
         const btnKirim = clone.querySelector('.tpl-btn-send');
         const inputTeks = clone.querySelector('.tpl-chat-teks');
@@ -253,8 +442,7 @@ window.ChatHandshake = {
         const inpGaleri = clone.querySelector('.tpl-input-galeri');
         const wadahChat = clone.querySelector('.tpl-chat-body');
 
-        // PEMBACAAN MURNI KE JSON (TANPA FALLBACK HARDCODE)
-        const isMediaAktif = window.BGN_CONFIG?.rules_app?.chat_controls?.media_feature_active;
+        const isMediaAktif = chatCtrl.media_feature_active;
         if (!isMediaAktif) {
             if (btnToggle) btnToggle.style.display = 'none';
             if (btnMic) btnMic.style.display = 'none';
@@ -268,7 +456,7 @@ window.ChatHandshake = {
         });
 
         inputTeks.addEventListener('input', () => {
-            if(inputTeks.value.trim() !== '') {
+            if (inputTeks.value.trim() !== '') {
                 btnMic.classList.add('hidden-state');
                 btnKirim.classList.remove('hidden-state');
             } else {
@@ -292,11 +480,11 @@ window.ChatHandshake = {
                 navigator.geolocation.getCurrentPosition((pos) => {
                     const kordinat = `${pos.coords.latitude.toFixed(6)},${pos.coords.longitude.toFixed(6)}`;
                     this.kirimPayloadPesan(kordinat, "lokasi");
-                    btnLokasi.innerHTML = '<i class="fa-solid fa-location-dot"></i> LOKASI';
+                    btnLokasi.innerHTML = `<i class="fa-solid fa-location-dot"></i> ${wChat.location_btn_label}`;
                     menuAlat.classList.remove('show-tools');
                 }, () => {
-                    btnLokasi.innerHTML = '<i class="fa-solid fa-location-dot"></i> LOKASI';
-                    const txtGps = window.BGN_CONFIG?.wording?.alerts?.gps_denied || "GPS Ditolak";
+                    btnLokasi.innerHTML = `<i class="fa-solid fa-location-dot"></i> ${wChat.location_btn_label}`;
+                    const txtGps = wAlerts.gps_denied;
                     if (window.UIManager && window.UIManager.alertConfig) window.UIManager.alertConfig('gps_denied', txtGps);
                     else if (window.UIManager) window.UIManager.alert(txtGps);
                 }, { enableHighAccuracy: true });
@@ -324,6 +512,10 @@ window.ChatHandshake = {
                     waktu_unggah: Date.now()
                 };
 
+                const maxImgWidth = chatCtrl.image_max_width_px;
+                const jpegQuality = chatCtrl.image_jpeg_quality;
+                const uploadTimeoutMs = chatCtrl.media_upload_timeout_ms;
+
                 const fileTerkompresi = await new Promise((resolve) => {
                     if (!file.type.startsWith('image/')) return resolve(file);
                     const reader = new FileReader();
@@ -332,11 +524,11 @@ window.ChatHandshake = {
                         img.onload = () => {
                             const canvas = document.createElement('canvas');
                             let w = img.width, h = img.height;
-                            if (w > 1200) { h = Math.round(h * 1200 / w); w = 1200; }
+                            if (w > maxImgWidth) { h = Math.round(h * maxImgWidth / w); w = maxImgWidth; }
                             canvas.width = w; canvas.height = h;
                             const ctx = canvas.getContext('2d');
                             ctx.drawImage(img, 0, 0, w, h);
-                            canvas.toBlob((blob) => resolve(blob), 'image/jpeg', 0.7);
+                            canvas.toBlob((blob) => resolve(blob), 'image/jpeg', jpegQuality);
                         };
                         img.src = e.target.result;
                     };
@@ -345,7 +537,7 @@ window.ChatHandshake = {
 
                 const url = await Promise.race([
                     uploadMediaKeCloudinary(fileTerkompresi, 'image'),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 15000))
+                    new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), uploadTimeoutMs))
                 ]);
 
                 if (url) {
@@ -360,19 +552,20 @@ window.ChatHandshake = {
                 if (loadEl) {
                     loadEl.style.borderColor = "#ef4444"; loadEl.style.color = "#ef4444";
                     const content = loadEl.querySelector('.msg-content');
-                    if (content) content.innerHTML = '<i class="fa-solid fa-circle-xmark"></i><span class="tpl-loading-text font-bold tracking-wide" style="margin-left:8px;">Gagal mengunggah media.</span>';
+                    if (content) content.innerHTML = `<i class="fa-solid fa-circle-xmark"></i><span class="tpl-loading-text font-bold tracking-wide" style="margin-left:8px;">${escapeHTML(wChat.upload_failed_msg)}</span>`;
                 }
             }
         };
 
-        inpKamera.addEventListener('change', (e) => { if (e.target.files.length > 0) prosesUploadVisual(e.target.files[0], "Kamera Langsung"); });
-        inpGaleri.addEventListener('change', (e) => { if (e.target.files.length > 0) prosesUploadVisual(e.target.files[0], "Galeri Perangkat"); });
+        inpKamera.addEventListener('change', (e) => { if (e.target.files.length > 0) prosesUploadVisual(e.target.files[0], wChat.source_camera); });
+        inpGaleri.addEventListener('change', (e) => { if (e.target.files.length > 0) prosesUploadVisual(e.target.files[0], wChat.source_gallery); });
 
         const btnWaHeader = clone.querySelector('.tpl-btn-wa-driver');
         if (isRecovery && btnWaHeader && window.BAGANTARA_DRIVER && window.BAGANTARA_DRIVER.wa) {
             btnWaHeader.classList.remove('hidden-state');
             btnWaHeader.addEventListener('click', () => {
-                window.open(`https://wa.me/${window.BAGANTARA_DRIVER.wa}?text=Permisi,%20konfirmasi%20order%20Bagantara.%20ID%20Tiket:%20${idTiketAktif.substring(0,8)}`, '_blank');
+                const msgRec = `${wTemplates.wa_driver_recovery} ${idTiketAktif.substring(0, 8)}`;
+                window.open(`${mapCfg.whatsapp_base_url}${window.BAGANTARA_DRIVER.wa}?text=${encodeURIComponent(msgRec)}`, '_blank');
             });
         }
 
@@ -383,9 +576,12 @@ window.ChatHandshake = {
                 if (panel) {
                     panel.style.animation = 'slideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1) reverse forwards';
                     setTimeout(() => {
-                        panel.style.display = 'none'; 
+                        panel.style.display = 'none';
+                        // Putuskan koneksi WebSocket saat ruang chat diminimalkan apabila sesi sudah terhubung (bukan sedang menunggu ACC)
+                        if (localStorage.getItem('bgt_active_chat')) {
+                            this.putuskanKoneksiChat();
+                        }
                         
-                        // FIX UX V7: Kembalikan ke Beranda Katalog Driver agar tidak terlempar ke peta kosong
                         if (window.spaNavigateTo) {
                             window.spaNavigateTo('view-mitra-map');
                             const orderPanel = document.getElementById('dynamicOrderPanel');
@@ -398,7 +594,6 @@ window.ChatHandshake = {
             });
         }
 
-        const uiDefault = clone.querySelector('.tpl-default-ui');
         const uiRecording = clone.querySelector('.tpl-recording-ui');
         const timerText = clone.querySelector('.tpl-record-timer');
         const btnBatalVoice = clone.querySelector('.tpl-btn-cancel-record');
@@ -449,11 +644,12 @@ window.ChatHandshake = {
                 if (timerText) timerText.innerText = "0:00"; 
 
                 if (canvasGelombang) {
-                    canvasGelombang.width = canvasGelombang.offsetWidth || 150;
-                    canvasGelombang.height = canvasGelombang.offsetHeight || 24;
+                    canvasGelombang.width = canvasGelombang.offsetWidth ? canvasGelombang.offsetWidth : 150;
+                    canvasGelombang.height = canvasGelombang.offsetHeight ? canvasGelombang.offsetHeight : 24;
                     const canvasCtx = canvasGelombang.getContext('2d');
                     
-                    konteksAudio = new (window.AudioContext || window.webkitAudioContext)();
+                    const AudioCtx = window.AudioContext ? window.AudioContext : window.webkitAudioContext;
+                    konteksAudio = new AudioCtx();
                     const sumberAudio = konteksAudio.createMediaStreamSource(streamGlobal);
                     const analyser = konteksAudio.createAnalyser();
                     
@@ -463,7 +659,7 @@ window.ChatHandshake = {
                     sumberAudio.connect(analyser);
 
                     function gambarGelombang() {
-                        if(!isTerjeda) analyser.getByteFrequencyData(dataArray);
+                        if (!isTerjeda) analyser.getByteFrequencyData(dataArray);
                         canvasCtx.clearRect(0, 0, canvasGelombang.width, canvasGelombang.height);
                         const barWidth = 3; const gap = 2;
                         const barCount = Math.floor(canvasGelombang.width / (barWidth + gap));
@@ -476,7 +672,7 @@ window.ChatHandshake = {
                             
                             canvasCtx.fillStyle = '#10b981'; 
                             canvasCtx.beginPath();
-                            if(canvasCtx.roundRect) canvasCtx.roundRect(x, y, barWidth, tinggiMinimal, 2);
+                            if (canvasCtx.roundRect) canvasCtx.roundRect(x, y, barWidth, tinggiMinimal, 2);
                             else canvasCtx.fillRect(x, y, barWidth, tinggiMinimal);
                             canvasCtx.fill();
                             x += barWidth + gap;
@@ -490,7 +686,7 @@ window.ChatHandshake = {
                 
                 perakamAudio.onstop = async () => {
                     isRekamanAktif = false;
-                    if(streamGlobal) streamGlobal.getTracks().forEach(track => track.stop());
+                    if (streamGlobal) streamGlobal.getTracks().forEach(track => track.stop());
                     
                     if (window.ChatHandshake.intervalRekamanGlobal) clearInterval(window.ChatHandshake.intervalRekamanGlobal);
                     if (idAnimasiCanvas) cancelAnimationFrame(idAnimasiCanvas);
@@ -514,10 +710,11 @@ window.ChatHandshake = {
                     }
 
                     const blobAudio = new Blob(potonganAudio, { type: 'audio/webm' });
+                    const uploadTimeoutMs = chatCtrl.media_upload_timeout_ms;
                     try {
                         const url = await Promise.race([
                             uploadMediaKeCloudinary(blobAudio, 'audio'),
-                            new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 15000))
+                            new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), uploadTimeoutMs))
                         ]);
                         if (url) {
                             await window.ChatHandshake.kirimPayloadPesan(url, "audio");
@@ -529,22 +726,23 @@ window.ChatHandshake = {
                         if (loadEl) {
                             loadEl.style.borderColor = "#ef4444"; loadEl.style.color = "#ef4444";
                             const content = loadEl.querySelector('.msg-content');
-                            if (content) content.innerHTML = '<i class="fa-solid fa-circle-xmark"></i><span class="tpl-loading-text font-bold tracking-wide" style="margin-left:8px;">Gagal mengirim.</span>';
+                            if (content) content.innerHTML = `<i class="fa-solid fa-circle-xmark"></i><span class="tpl-loading-text font-bold tracking-wide" style="margin-left:8px;">${escapeHTML(wChat.send_failed_msg)}</span>`;
                         }
                     }
                 };
 
                 perakamAudio.start();
 
+                const maxVoiceSec = chatCtrl.voice_max_duration_sec;
                 window.ChatHandshake.intervalRekamanGlobal = setInterval(() => {
                     waktuRekaman++;
                     if (timerText) timerText.innerText = formatTime(waktuRekaman);
-                    if (waktuRekaman >= 60 && perakamAudio && (perakamAudio.state === "recording" || perakamAudio.state === "paused")) perakamAudio.stop();
+                    if (waktuRekaman >= maxVoiceSec && perakamAudio && (perakamAudio.state === "recording" || perakamAudio.state === "paused")) perakamAudio.stop();
                 }, 1000);
 
             } catch (e) {
                 isRekamanAktif = false;
-                const txtMic = window.BGN_CONFIG?.wording?.alerts?.mic_denied || "Akses Mikrofon ditolak/gagal.";
+                const txtMic = wAlerts.mic_denied;
                 if (window.UIManager && window.UIManager.alertConfig) window.UIManager.alertConfig('mic_denied', txtMic);
                 else if (window.UIManager) window.UIManager.alert(txtMic);
             }
@@ -564,8 +762,10 @@ window.ChatHandshake = {
             const sentuh = e.touches ? e.touches[0] : e;
             const deltaX = sentuh.clientX - touchStartX;
             const deltaY = sentuh.clientY - touchStartY;
+            const lockDeltaY = chatCtrl.voice_lock_delta_y_px;
+            const cancelDeltaX = chatCtrl.voice_cancel_delta_x_px;
 
-            if (deltaY < -60) {
+            if (deltaY < lockDeltaY) {
                 isTerkunci = true;
                 if (indicatorLock) indicatorLock.classList.remove('show');
                 if (hintGeser) hintGeser.style.opacity = '0';
@@ -576,18 +776,18 @@ window.ChatHandshake = {
                 return;
             }
 
-            if (deltaX < -50) {
+            if (deltaX < cancelDeltaX) {
                 isDibatalkan = true;
                 if (perakamAudio && perakamAudio.state === "recording") perakamAudio.stop();
                 return;
             }
 
-            if (deltaX < 0 && deltaX > -50 && hintGeser) {
-                hintGeser.style.opacity = 1 - (Math.abs(deltaX) / 50);
+            if (deltaX < 0 && deltaX > cancelDeltaX && hintGeser) {
+                hintGeser.style.opacity = 1 - (Math.abs(deltaX) / Math.abs(cancelDeltaX));
             }
         };
 
-        const handleEnd = (e) => {
+        const handleEnd = () => {
             btnMic.style.transform = 'scale(1)';
             if (!isRekamanAktif) return;
             if (!isTerkunci) {
@@ -635,20 +835,21 @@ window.ChatHandshake = {
             btnPause.addEventListener('click', (e) => {
                 e.preventDefault();
                 if (!perakamAudio) return;
+                const maxVoiceSec = chatCtrl.voice_max_duration_sec;
                 
                 if (perakamAudio.state === "recording") {
                     isTerjeda = true;
                     perakamAudio.pause();
-                    btnPause.innerHTML = '<i class="fa-solid fa-microphone"></i> Lanjut';
+                    btnPause.innerHTML = `<i class="fa-solid fa-microphone"></i> ${escapeHTML(wChat.voice_resume_label)}`;
                     if (window.ChatHandshake.intervalRekamanGlobal) clearInterval(window.ChatHandshake.intervalRekamanGlobal);
                 } else if (perakamAudio.state === "paused") {
                     isTerjeda = false;
                     perakamAudio.resume();
-                    btnPause.innerHTML = '<i class="fa-solid fa-pause"></i> Jeda';
+                    btnPause.innerHTML = `<i class="fa-solid fa-pause"></i> ${escapeHTML(wChat.voice_pause_label)}`;
                     window.ChatHandshake.intervalRekamanGlobal = setInterval(() => {
                         waktuRekaman++;
                         if (timerText) timerText.innerText = formatTime(waktuRekaman);
-                        if (waktuRekaman >= 60 && perakamAudio.state === "recording") perakamAudio.stop();
+                        if (waktuRekaman >= maxVoiceSec && perakamAudio.state === "recording") perakamAudio.stop();
                     }, 1000);
                 }
             });
@@ -662,98 +863,92 @@ window.ChatHandshake = {
         document.body.appendChild(clone);
         
         document.getElementById('btn-tutup-modal-img').addEventListener('click', () => this.tutupLayarPenuhGambar());
-        document.getElementById('modal-fullscreen-img').addEventListener('click', (e) => { if(e.target.id === 'modal-fullscreen-img') this.tutupLayarPenuhGambar(); });
+        document.getElementById('modal-fullscreen-img').addEventListener('click', (e) => { if (e.target.id === 'modal-fullscreen-img') this.tutupLayarPenuhGambar(); });
 
         this.mulaiDengarPesan();
 
         if (!isRecovery) {
-            // FIX TAHAP 2: FALLBACK TIMEOUT LOKAL
-            const delayKatalogMs = window.BGN_CONFIG?.rules_app?.chat_controls?.catalog_send_delay_ms || 1500;
+            const delayKatalogMs = chatCtrl.catalog_send_delay_ms;
+            // Ambil referensi payloadTiket yang sudah dikunci secara utuh (Anti-Reset Tip Rp 0)
+            const lockedOrder = orderPayload ? orderPayload : (payloadTiketAktif ? payloadTiketAktif : window.BAGANTARA_LAST_ORDER_PAYLOAD);
             
             this.timeoutKatalog = setTimeout(async () => {
-            const namaKlien = document.getElementById('inputClientName')?.value?.trim() || "Klien VIP";
-            const layananSistem = window.BAGANTARA_SERVICE || 'RIDE';
-            
-            let stringWaypoints = "";
-            let labelTujuan = window.BAGANTARA_DROPOFF_DETAIL ? `${window.BAGANTARA_DROPOFF_DETAIL.kec || '-'} (${window.BAGANTARA_DROPOFF_DETAIL.patokan || '-'})` : '-';
-            
-            if (window.BAGANTARA_MULTI_DROPOFFS && window.BAGANTARA_MULTI_DROPOFFS.length > 1) {
-                labelTujuan = 'Multi-Stop (Peta Google Navigasi Siap)';
-                const titikSinggah = window.BAGANTARA_MULTI_DROPOFFS.slice(0, -1).filter(Boolean);
-                if (titikSinggah.length > 0) {
-                    stringWaypoints = titikSinggah.map(p => `${p.lat.toFixed(6)},${p.lng.toFixed(6)}`).join('|');
+                if (!lockedOrder || !idTiketAktif) return;
+
+                const layananSistem = lockedOrder.layanan ? lockedOrder.layanan : wPopup.default_service;
+                const multiList = Array.isArray(lockedOrder.multi_dropoffs) ? lockedOrder.multi_dropoffs : [];
+                
+                let stringWaypoints = "";
+                let labelTujuan = lockedOrder.dropoff_alamat
+                    ? (lockedOrder.dropoff_patokan && lockedOrder.dropoff_patokan !== wPopup.no_notes
+                        ? `${lockedOrder.dropoff_alamat} (${lockedOrder.dropoff_patokan})`
+                        : lockedOrder.dropoff_alamat)
+                    : wPopup.no_notes;
+                
+                if (multiList.length > 1) {
+                    labelTujuan = wChat.multi_stop_ready_label;
+                    const titikSinggah = multiList.slice(0, -1).filter(Boolean);
+                    if (titikSinggah.length > 0) {
+                        stringWaypoints = titikSinggah.map(p => `${parseFloat(p.lat).toFixed(6)},${parseFloat(p.lng).toFixed(6)}`).join('|');
+                    }
+                } else if (multiList.length === 1 && multiList[0]?.name) {
+                    labelTujuan = multiList[0].name;
                 }
-            } else if (window.BAGANTARA_MULTI_DROPOFFS && window.BAGANTARA_MULTI_DROPOFFS.length === 1) {
-                const target = window.BAGANTARA_MULTI_DROPOFFS[0];
-                labelTujuan = target && target.name ? target.name : '-';
-            }
 
-            const pickupCoordStr = window.BAGANTARA_PICKUP_COORD || '';
-            const dropoffCoordStr = window.BAGANTARA_DROPOFF_COORD || '';
+                const pickupCoordStr = lockedOrder.pickup_coord ? lockedOrder.pickup_coord : '';
+                const dropoffCoordStr = lockedOrder.dropoff_coord ? lockedOrder.dropoff_coord : '';
 
-            let namaJemput = window.BAGANTARA_PICKUP_DETAIL?.kec || '';
-            let patokanJemput = window.BAGANTARA_PICKUP_DETAIL?.patokan || '';
-            let labelJemputFaktual = '';
+                const namaJemput = lockedOrder.pickup_alamat ? lockedOrder.pickup_alamat : '';
+                const patokanJemput = lockedOrder.pickup_patokan ? lockedOrder.pickup_patokan : wPopup.no_notes;
+                let labelJemputFaktual = '';
 
-            if (!namaJemput || namaJemput === '-' || namaJemput.toLowerCase().includes('memindai')) {
-                labelJemputFaktual = pickupCoordStr ? `📍 Titik Peta: ${pickupCoordStr}` : 'Lokasi Jemput Kosong';
-                if (patokanJemput && patokanJemput !== '-') labelJemputFaktual += ` (Catatan: ${patokanJemput})`;
-            } else {
-                labelJemputFaktual = `${namaJemput} (${patokanJemput || '-'})`;
-            }
-
-            let labelTujuanFaktual = '';
-            if (!labelTujuan || labelTujuan === '-' || labelTujuan === '- (-)' || labelTujuan.toLowerCase().includes('memindai')) {
-                labelTujuanFaktual = dropoffCoordStr ? `📍 Titik Peta: ${dropoffCoordStr}` : 'Lokasi Tujuan Kosong';
-            } else {
-                labelTujuanFaktual = labelTujuan;
-            }
-
-            const noWaKlien = document.getElementById('inputClientWA')?.value?.trim() || "";
-            const catatanInput = document.getElementById('inputCatatanDriver');
-            const teksCatatan = catatanInput ? catatanInput.value.trim() : "";
-            
-            let nominalTip = 0;
-            const tipChips = document.querySelectorAll('.btn-tip-chip');
-            for (const chip of tipChips) {
-                if (chip.style.color === 'var(--neon-gold)') {
-                    nominalTip = parseInt(chip.getAttribute('data-tip')) || 0;
-                    break;
+                if (!namaJemput || namaJemput === wPopup.no_notes || namaJemput.toLowerCase().includes('memindai')) {
+                    labelJemputFaktual = pickupCoordStr ? `📍 ${wPins.map_point_prefix}: ${pickupCoordStr}` : wChat.empty_pickup_label;
+                    if (patokanJemput && patokanJemput !== wPopup.no_notes) {
+                        labelJemputFaktual += ` (${wChat.note_label_prefix} ${patokanJemput})`;
+                    }
+                } else {
+                    labelJemputFaktual = `${namaJemput} (${patokanJemput})`;
                 }
-            }
-            if (nominalTip === 0) {
-                const customTip = document.getElementById('inputTipCustom');
-                if (customTip && customTip.value) nominalTip = parseInt(customTip.value) || 0;
-            }
-            
-            const hargaDasar = window.BAGANTARA_FINAL_PRICE || 0;
-            const hargaTotal = hargaDasar + nominalTip;
 
-            const dataKatalog = {
-                layanan: layananSistem,
-                harga: hargaTotal, 
-                harga_dasar: hargaDasar,
-                tip_nominal: nominalTip,
-                catatan: teksCatatan,
-                jarak: window.BAGANTARA_DISTANCE_KM || 0,
-                jemput: labelJemputFaktual,
-                tujuan: labelTujuanFaktual,
-                pickup_coord: pickupCoordStr,
-                dropoff_coord: dropoffCoordStr,
-                waypoints: stringWaypoints, 
-                belanjaan: layananSistem === 'JASTIP' ? (window.BAGANTARA_JASTIP_ITEMS || []) : null,
-                wa_klien: noWaKlien
-            };
+                let labelTujuanFaktual = '';
+                if (!labelTujuan || labelTujuan === wPopup.no_notes || labelTujuan.toLowerCase().includes('memindai')) {
+                    labelTujuanFaktual = dropoffCoordStr ? `📍 ${wPins.map_point_prefix}: ${dropoffCoordStr}` : wChat.empty_dropoff_label;
+                } else {
+                    labelTujuanFaktual = labelTujuan;
+                }
 
-            await this.kirimPayloadPesan(JSON.stringify(dataKatalog), "katalog_order");
+                // MURNI MENGGUNAKAN NILAI DARI lockedOrder (payloadTiket) TANPA MEMBACA ULANG DOM YANG SUDAH DIRESET!
+                const hargaDasar = parseInt(lockedOrder.harga_dasar, 10) ? parseInt(lockedOrder.harga_dasar, 10) : 0;
+                const nominalTip = parseInt(lockedOrder.tip_nominal, 10) ? parseInt(lockedOrder.tip_nominal, 10) : 0;
+                const hargaTotal = parseInt(lockedOrder.harga_tawaran, 10) ? parseInt(lockedOrder.harga_tawaran, 10) : (hargaDasar + nominalTip);
 
-        }, delayKatalogMs); 
+                const dataKatalog = {
+                    layanan: layananSistem,
+                    harga: hargaTotal, 
+                    harga_dasar: hargaDasar,
+                    tip_nominal: nominalTip,
+                    catatan: lockedOrder.catatan_tambahan ? lockedOrder.catatan_tambahan : "",
+                    jarak: lockedOrder.jarak_km ? lockedOrder.jarak_km : 0,
+                    jemput: labelJemputFaktual,
+                    tujuan: labelTujuanFaktual,
+                    pickup_coord: pickupCoordStr,
+                    dropoff_coord: dropoffCoordStr,
+                    waypoints: stringWaypoints, 
+                    belanjaan: layananSistem === 'JASTIP' ? (Array.isArray(lockedOrder.belanjaan) ? lockedOrder.belanjaan : []) : null,
+                    wa_klien: lockedOrder.wa_klien ? lockedOrder.wa_klien : ""
+                };
+
+                await this.kirimPayloadPesan(JSON.stringify(dataKatalog), "katalog_order");
+            }, delayKatalogMs); 
         } 
     },
 
     kirimPayloadPesan: async function(kontenPesan, tipePesan = "teks", metadataForensik = null) {
         if (!idTiketAktif || !kontenPesan) return;
+        this.aktifkanKoneksiChat();
         const referensi = ref(dbChat, `sesi_komunikasi/${idTiketAktif}/pesan`);
+        const wChat = window.BGN_CONFIG.wording.chat_system;
         
         const payload = {
             pengirim: "klien", 
@@ -768,15 +963,28 @@ window.ChatHandshake = {
         await push(referensi, payload);
 
         if (uidPengemudiTarget) {
-            let preview = tipePesan === 'teks' ? kontenPesan : (tipePesan === 'lokasi' ? '📍 Mengirim Lokasi' : (tipePesan === 'audio' ? '🎤 Pesan Suara' : (tipePesan === 'katalog_order' ? '📜 Mengirim Katalog Order' : '🖼️ Gambar Baru')));
+            let preview = tipePesan === 'teks'
+                ? kontenPesan
+                : (tipePesan === 'lokasi'
+                    ? wChat.preview_location
+                    : (tipePesan === 'audio'
+                        ? wChat.preview_audio
+                        : (tipePesan === 'katalog_order'
+                            ? wChat.preview_catalog
+                            : wChat.preview_image)));
             await update(ref(dbChat, `inbox_mitra/${uidPengemudiTarget}/${idTiketAktif}`), {
                 pesan_terakhir: preview,
                 waktu_update: Date.now()
-            }).catch(()=>{});
+            }).catch(() => {});
         }
     },
 
     mulaiDengarPesan: function() {
+        const wAlerts = window.BGN_CONFIG.wording.alerts;
+        const wChat = window.BGN_CONFIG.wording.chat_system;
+        const currencyCode = window.BGN_CONFIG.tariffs.currency;
+        const gmapsSearchUrl = window.BGN_CONFIG.settings.map_config.google_maps_search_url;
+
         const referensiRuang = ref(dbChat, `sesi_komunikasi/${idTiketAktif}`);
         if (this.pemantauRuang) this.pemantauRuang();
         let ruangSudahAda = false;
@@ -784,7 +992,7 @@ window.ChatHandshake = {
             if (snapshot.exists()) {
                 ruangSudahAda = true;
             } else if (!snapshot.exists() && ruangSudahAda) {
-                const txtEnded = window.BGN_CONFIG?.wording?.alerts?.chat_ended || "Sesi telah diselesaikan atau diakhiri oleh Driver.";
+                const txtEnded = wAlerts.chat_ended;
                 this.kematianSesiPaksa(txtEnded);
             }
         });
@@ -796,14 +1004,15 @@ window.ChatHandshake = {
         
         pemantauPesan = onChildAdded(referensi, (snapshot) => {
             const pesan = snapshot.val();
-            if (!wadahChat) return;
+            if (!wadahChat || !pesan) return;
 
             if (pesan.tipe === 'sistem_tolak') {
                 if (this.timeoutPesanan) { clearTimeout(this.timeoutPesanan); this.timeoutPesanan = null; }
+                this._hentikanPollingRadar();
                 const uiTunggu = document.getElementById('ui-tunggu-acc');
                 if (uiTunggu) uiTunggu.remove();
 
-                const msgTolak = window.BGN_CONFIG?.wording?.alerts?.chat_driver_unavailable || "Mohon maaf, driver tidak dapat menerima pesanan Anda saat ini. Silakan pilih driver lain.";
+                const msgTolak = wAlerts.chat_driver_unavailable;
                 this.batalkanSesi(msgTolak);
                 return; 
             }
@@ -817,90 +1026,96 @@ window.ChatHandshake = {
                 if (uiTunggu) {
                     uiTunggu.remove(); 
                     if (this.timeoutPesanan) { clearTimeout(this.timeoutPesanan); this.timeoutPesanan = null; }
+                    this._hentikanPollingRadar();
                 }
             }
 
             const posisiKelas = pesan.pengirim === 'klien' ? 'msg-mitra' : 'msg-klien';
             let htmlKonten = '';
 
+            // SANITASI ANTI-XSS MENYELURUH DENGAN escapeHTML()
             if (pesan.tipe === 'teks') {
-                htmlKonten = `<p>${pesan.konten}</p>`;
+                htmlKonten = `<p>${escapeHTML(pesan.konten)}</p>`;
             } else if (pesan.tipe === 'katalog_order') {
                 try {
                     const k = JSON.parse(pesan.konten);
-                    const formatRp = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(k.harga);
                     const warnaLayanan = k.layanan === 'RIDE' ? '#3b82f6' : (k.layanan === 'EXPRESS' ? '#f59e0b' : '#10b981');
-                    const isJastip = k.layanan === 'JASTIP' && k.belanjaan && k.belanjaan.length > 0;
+                    const isJastip = k.layanan === 'JASTIP' && Array.isArray(k.belanjaan) && k.belanjaan.length > 0;
                     
                     let htmlJastip = '';
                     let rincianBelanjaTotal = 0;
                     
                     if (isJastip) {
-                        k.belanjaan.forEach(item => { rincianBelanjaTotal += (item.qty * item.price); });
-                        const formatBelanja = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(rincianBelanjaTotal);
-                        const listBelanjaHtml = k.belanjaan.map(i => `<li><b>${i.qty}x</b> ${i.name} (@ Rp${i.price})</li>`).join('');
+                        k.belanjaan.forEach(item => { rincianBelanjaTotal += ((Number(item.qty) ? Number(item.qty) : 0) * (Number(item.price) ? Number(item.price) : 0)); });
+                        const formatBelanja = new Intl.NumberFormat('id-ID', { style: 'currency', currency: currencyCode, minimumFractionDigits: 0 }).format(rincianBelanjaTotal);
+                        const listBelanjaHtml = k.belanjaan.map(i => `<li><b>${escapeHTML(i.qty)}x</b> ${escapeHTML(i.name)} (@ Rp${escapeHTML(i.price)})</li>`).join('');
                         
                         htmlJastip = `<div style="border-top:1px dashed rgba(255,255,255,0.2); margin:8px 0; padding-top:8px;">
-                            <span style="font-size:0.6rem; color:#94a3b8; display:block; margin-bottom:4px; font-weight:bold;">DAFTAR BELANJA:</span>
+                            <span style="font-size:0.6rem; color:#94a3b8; display:block; margin-bottom:4px; font-weight:bold;">${escapeHTML(wChat.catalog_shopping_header)}</span>
                             <ul style="margin:0 0 6px 0; padding-left:14px; font-size:0.75rem; color:#f8fafc; list-style-type:square;">
                                 ${listBelanjaHtml}
                             </ul>
                             <div style="background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.4); padding: 4px 8px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center;">
-                                <span style="font-size:0.65rem; color:#10b981; font-weight:bold;">TOTAL BELANJA</span>
-                                <span style="font-size:0.85rem; color:#10b981; font-weight:900; font-family:monospace;">${formatBelanja}</span>
+                                <span style="font-size:0.65rem; color:#10b981; font-weight:bold;">${escapeHTML(wChat.catalog_shopping_total)}</span>
+                                <span style="font-size:0.85rem; color:#10b981; font-weight:900; font-family:monospace;">${escapeHTML(formatBelanja)}</span>
                             </div>
                         </div>`;
                     }
 
                     let htmlCatatan = '';
-                    if (k.catatan && k.catatan.trim() !== '') {
+                    if (k.catatan && String(k.catatan).trim() !== '') {
                         htmlCatatan = `<div style="background:rgba(255,255,255,0.05); border-left:3px solid #94a3b8; padding:8px; border-radius:4px; margin-top:8px;">
-                            <span style="font-size:0.65rem; color:#94a3b8; font-weight:bold; display:block; margin-bottom:2px;"><i class="fa-solid fa-comment-dots"></i> CATATAN DRIVER:</span>
-                            <span style="font-size:0.75rem; color:#f8fafc; font-style:italic;">"${k.catatan}"</span>
+                            <span style="font-size:0.65rem; color:#94a3b8; font-weight:bold; display:block; margin-bottom:2px;"><i class="fa-solid fa-comment-dots"></i> ${escapeHTML(wChat.catalog_driver_note)}</span>
+                            <span style="font-size:0.75rem; color:#f8fafc; font-style:italic;">"${escapeHTML(k.catatan)}"</span>
                         </div>`;
                     }
 
                     let htmlBadgeTip = '';
-                    if (k.tip_nominal && k.tip_nominal > 0) {
-                        const formatTip = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(k.tip_nominal);
+                    const tipNum = Number(k.tip_nominal);
+                    if (!isNaN(tipNum) && tipNum > 0) {
+                        const formatTip = new Intl.NumberFormat('id-ID', { style: 'currency', currency: currencyCode, minimumFractionDigits: 0 }).format(tipNum);
                         htmlBadgeTip = `<div style="margin-top:4px; display:inline-block; background:rgba(212, 175, 55, 0.15); border:1px solid #ceab6b; color:#ceab6b; font-size:0.6rem; font-weight:bold; padding:2px 8px; border-radius:12px;">
-                            <i class="fa-solid fa-bolt"></i> Termasuk Tip ${formatTip}
+                            <i class="fa-solid fa-bolt"></i> ${escapeHTML(wChat.catalog_tip_prefix)} ${escapeHTML(formatTip)}
                         </div>`;
                     }
                     
-                    const estimasiOngkirMurni = k.harga;
-                    const formatOngkir = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(estimasiOngkirMurni);
-                    const labelHargaBawah = isJastip ? "ESTIMASI ONGKIR & JASA" : "TOTAL ESTIMASI TARIF";
+                    const estimasiOngkirMurni = Number(k.harga) ? Number(k.harga) : 0;
+                    const formatOngkir = new Intl.NumberFormat('id-ID', { style: 'currency', currency: currencyCode, minimumFractionDigits: 0 }).format(estimasiOngkirMurni);
+                    const labelHargaBawah = isJastip ? wChat.catalog_shipping_label : wChat.catalog_total_tariff_label;
 
                     htmlKonten = `
                         <div style="background:#0f1624; border:1px solid ${warnaLayanan}; border-radius:12px; padding:12px; width:min(255px, 76vw); display:flex; flex-direction:column; gap:6px; box-shadow:0 8px 20px rgba(0,0,0,0.4);">
                             <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:6px;">
-                                <span style="font-size:0.65rem; color:${warnaLayanan}; font-weight:900; letter-spacing:1px;"><i class="fa-solid fa-receipt mr-1"></i> ORDER: ${k.layanan}</span>
-                                <span style="font-size:0.65rem; color:#94a3b8; font-family:monospace;">${k.jarak} KM</span>
+                                <span style="font-size:0.65rem; color:${warnaLayanan}; font-weight:900; letter-spacing:1px;"><i class="fa-solid fa-receipt mr-1"></i> ${escapeHTML(wChat.catalog_order_prefix)} ${escapeHTML(k.layanan)}</span>
+                                <span style="font-size:0.65rem; color:#94a3b8; font-family:monospace;">${escapeHTML(k.jarak)} KM</span>
                             </div>
                             <div style="display:flex; flex-direction:column; gap:4px; margin-top:4px;">
                                 <div style="display:flex; gap:6px;">
                                     <i class="fa-solid fa-circle-up" style="color:#10b981; font-size:0.7rem; margin-top:3px;"></i>
-                                    <span style="font-size:0.75rem; color:#f8fafc; line-height:1.3;"><b>Jemput:</b><br>${k.jemput}</span>
+                                    <span style="font-size:0.75rem; color:#f8fafc; line-height:1.3;"><b>${escapeHTML(wChat.catalog_pickup_label)}</b><br>${escapeHTML(k.jemput)}</span>
                                 </div>
                                 <div style="width:2px; height:10px; background:rgba(255,255,255,0.2); margin-left:4px;"></div>
                                 <div style="display:flex; gap:6px;">
                                     <i class="fa-solid fa-location-dot" style="color:#ef4444; font-size:0.7rem; margin-top:3px;"></i>
-                                    <span style="font-size:0.75rem; color:#f8fafc; line-height:1.3;"><b>Tujuan:</b><br>${k.tujuan}</span>
+                                    <span style="font-size:0.75rem; color:#f8fafc; line-height:1.3;"><b>${escapeHTML(wChat.catalog_dropoff_label)}</b><br>${escapeHTML(k.tujuan)}</span>
                                 </div>
                             </div>
                             ${htmlJastip}
                             ${htmlCatatan}
                             <div style="background:rgba(212,175,55,0.1); border:1px dashed #ceab6b; border-radius:6px; padding:8px; text-align:center; margin-top:6px;">
-                                <span style="font-size:0.6rem; color:#ceab6b; display:block; font-weight:bold;">${labelHargaBawah}</span>
-                                <span style="font-size:1.2rem; color:#ceab6b; font-weight:900; font-family:monospace;">${formatOngkir}</span>
+                                <span style="font-size:0.6rem; color:#ceab6b; display:block; font-weight:bold;">${escapeHTML(labelHargaBawah)}</span>
+                                <span style="font-size:1.2rem; color:#ceab6b; font-weight:900; font-family:monospace;">${escapeHTML(formatOngkir)}</span>
                                 ${htmlBadgeTip}
                             </div>
                         </div>
                     `;
-                } catch(e) { htmlKonten = `<p><i>[Katalog Order Error]</i></p>`; }
+                } catch(e) { htmlKonten = `<p><i>${escapeHTML(wChat.catalog_error_fallback)}</i></p>`; }
             } else if (pesan.tipe === 'lokasi') {
-                const [lat, lng] = pesan.konten.split(',');
+                const parts = String(pesan.konten).split(',');
+                const nLat = parseFloat(parts[0]);
+                const nLng = parseFloat(parts[1]);
+                const safeLat = !isNaN(nLat) ? nLat : 0;
+                const safeLng = !isNaN(nLng) ? nLng : 0;
                 
                 htmlKonten = `
                     <div style="background:#0f1624; border:1px solid #ceab6b; border-radius:12px; padding:12px; width:220px; display:flex; flex-direction:column; gap:10px; box-shadow:0 4px 15px rgba(0,0,0,0.3);">
@@ -909,23 +1124,25 @@ window.ChatHandshake = {
                                 <i class="fa-solid fa-map-pin"></i>
                             </div>
                             <div style="display:flex; flex-direction:column; overflow:hidden;">
-                                <span style="font-size:0.75rem; color:#ceab6b; font-weight:bold;">Titik Koordinat</span>
-                                <span style="font-size:0.6rem; color:#94a3b8; font-family:monospace; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Lat: ${parseFloat(lat).toFixed(5)}</span>
-                                <span style="font-size:0.6rem; color:#94a3b8; font-family:monospace; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Lng: ${parseFloat(lng).toFixed(5)}</span>
+                                <span style="font-size:0.75rem; color:#ceab6b; font-weight:bold;">${escapeHTML(wChat.location_card_title)}</span>
+                                <span style="font-size:0.6rem; color:#94a3b8; font-family:monospace; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Lat: ${safeLat.toFixed(5)}</span>
+                                <span style="font-size:0.6rem; color:#94a3b8; font-family:monospace; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Lng: ${safeLng.toFixed(5)}</span>
                             </div>
                         </div>
-                        <a href="https://www.google.com/maps/search/?api=1&query=${lat},${lng}" target="_blank" style="background:#ceab6b; color:#0b101a; padding:10px; border-radius:8px; text-align:center; font-size:0.8rem; font-weight:bold; text-decoration:none; display:flex; justify-content:center; align-items:center; gap:6px;">
-                            <i class="fa-solid fa-diamond-turn-right"></i> BUKA MAPS
+                        <a href="${gmapsSearchUrl}${safeLat},${safeLng}" target="_blank" rel="noopener noreferrer" style="background:#ceab6b; color:#0b101a; padding:10px; border-radius:8px; text-align:center; font-size:0.8rem; font-weight:bold; text-decoration:none; display:flex; justify-content:center; align-items:center; gap:6px;">
+                            <i class="fa-solid fa-diamond-turn-right"></i> ${escapeHTML(wChat.location_open_maps)}
                         </a>
                     </div>
                 `;
             } else if (pesan.tipe === 'audio') {
-                htmlKonten = `<audio controls src="${pesan.konten}" style="height:32px; width:180px;"></audio>`;
+                const safeAudioUrl = sanitizeMediaUrl(pesan.konten);
+                htmlKonten = `<audio controls src="${safeAudioUrl}" style="height:32px; width:180px;"></audio>`;
             } else if (pesan.tipe === 'gambar') {
+                const safeImgUrl = sanitizeMediaUrl(pesan.konten);
                 htmlKonten = `
                 <div class="media-container" style="position:relative; width:200px;">
-                    <div class="image-wrapper image-fullscreen-trigger" data-img="${pesan.konten}" style="position:relative; border-radius:6px; overflow:hidden; cursor:pointer; height: 260px;">
-                        <img src="${pesan.konten}" loading="lazy" style="width:100%; height:100%; object-fit:cover; display:block; pointer-events:none; -webkit-touch-callout:none; user-select:none;">
+                    <div class="image-wrapper image-fullscreen-trigger" data-img="${safeImgUrl}" style="position:relative; border-radius:6px; overflow:hidden; cursor:pointer; height: 260px;">
+                        <img src="${safeImgUrl}" loading="lazy" style="width:100%; height:100%; object-fit:cover; display:block; pointer-events:none; -webkit-touch-callout:none; user-select:none;">
                     </div>
                 </div>`;
             }
@@ -944,7 +1161,7 @@ window.ChatHandshake = {
             }
 
             const extraCardClass = (pesan.tipe === "katalog_order" || pesan.tipe === "lokasi" || pesan.tipe === "gambar") ? " msg-katalog-card" : "";
-            const htmlElemen = `<div id="${idUnik}" class="msg-bubble ${posisiKelas}${extraCardClass}"><div class="msg-content">${htmlKonten}</div><span class="msg-time" style="display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-top: 2px;">${new Date(pesan.waktu).toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit'})}${statusIkon}</span></div>`;
+            const htmlElemen = `<div id="${escapeHTML(idUnik)}" class="msg-bubble ${posisiKelas}${extraCardClass}"><div class="msg-content">${htmlKonten}</div><span class="msg-time" style="display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-top: 2px;">${new Date(pesan.waktu).toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit'})}${statusIkon}</span></div>`;
             
             wadahChat.insertAdjacentHTML('beforeend', htmlElemen);
             
@@ -955,7 +1172,7 @@ window.ChatHandshake = {
         if (this.pemantauPesanUbah) this.pemantauPesanUbah();
         this.pemantauPesanUbah = onChildChanged(referensi, (snapshot) => {
             const pesanUbah = snapshot.val();
-            if (pesanUbah.pengirim === 'klien' && pesanUbah.status === 'read') {
+            if (pesanUbah && pesanUbah.pengirim === 'klien' && pesanUbah.status === 'read') {
                 const elemenPesan = document.getElementById(snapshot.key);
                 if (elemenPesan) {
                     const timeSpan = elemenPesan.querySelector('.msg-time');
@@ -969,7 +1186,8 @@ window.ChatHandshake = {
 
     mainkanSuara: function() {
         try {
-            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const AudioCtx = window.AudioContext ? window.AudioContext : window.webkitAudioContext;
+            const ctx = new AudioCtx();
             const osc = ctx.createOscillator();
             const gain = ctx.createGain();
             osc.type = 'sine';
@@ -982,24 +1200,33 @@ window.ChatHandshake = {
         } catch (e) {}
     },
 
-    akhiriSesiObrolan: function() {
+    akhiriSesiObrolan: async function() {
+        if (this.timeoutPesanan) { clearTimeout(this.timeoutPesanan); this.timeoutPesanan = null; }
         if (this.timeoutKatalog) { clearTimeout(this.timeoutKatalog); this.timeoutKatalog = null; }
         if (this.intervalRekamanGlobal) { clearInterval(this.intervalRekamanGlobal); this.intervalRekamanGlobal = null; }
         if (perakamAudio && perakamAudio.state === "recording") { perakamAudio.stop(); }
 
-        if (idTiketAktif) {
-            remove(ref(dbChat, `sesi_komunikasi/${idTiketAktif}`));
-            if (uidPengemudiTarget) {
-                remove(ref(dbChat, `radar_tiket/${uidPengemudiTarget}/${idTiketAktif}`));
-                remove(ref(dbChat, `inbox_mitra/${uidPengemudiTarget}/${idTiketAktif}`));
-            }
-        }
+        this._hentikanPollingRadar();
         if (pemantauPesan) { pemantauPesan(); pemantauPesan = null; }
-        if (pemantauStatus) { pemantauStatus(); pemantauStatus = null; }
+        if (pemantauMetadataOrder) { pemantauMetadataOrder(); pemantauMetadataOrder = null; }
         if (this.pemantauRuang) { this.pemantauRuang(); this.pemantauRuang = null; }
         if (this.pemantauPesanUbah) { this.pemantauPesanUbah(); this.pemantauPesanUbah = null; } 
-        
+
+        const targetUid = uidPengemudiTarget;
+        const targetTiket = idTiketAktif;
+
+        idTiketAktif = null;
+        uidPengemudiTarget = null;
+        payloadTiketAktif = null;
         localStorage.removeItem('bgt_active_chat');
+
+        if (targetTiket) {
+            await Promise.allSettled([
+                targetUid ? this._hapusRadarTiketREST(targetUid, targetTiket) : Promise.resolve(),
+                (targetUid && dbChat) ? remove(ref(dbChat, `inbox_mitra/${targetUid}/${targetTiket}`)) : Promise.resolve(),
+                dbChat ? remove(ref(dbChat, `sesi_komunikasi/${targetTiket}`)) : Promise.resolve()
+            ]);
+        }
         
         if (this._handleMovePersisten) {
             document.removeEventListener('mousemove', this._handleMovePersisten);
@@ -1009,9 +1236,9 @@ window.ChatHandshake = {
             document.removeEventListener('mouseup', this._handleEndPersisten);
             document.removeEventListener('touchend', this._handleEndPersisten);
         }
-        
-        idTiketAktif = null;
-        uidPengemudiTarget = null;
+
+        // WAJIB PUTUS KONEKSI WEBSOCKET SAAT SESI DIAKHIRI
+        this.putuskanKoneksiChat();
         
         if (window.periksaSesiChatAktif) window.periksaSesiChatAktif();
 
@@ -1029,10 +1256,15 @@ window.ChatHandshake = {
         if (this.intervalRekamanGlobal) { clearInterval(this.intervalRekamanGlobal); this.intervalRekamanGlobal = null; }
         if (perakamAudio && perakamAudio.state === "recording") { perakamAudio.stop(); }
 
+        this._hentikanPollingRadar();
         if (pemantauPesan) { pemantauPesan(); pemantauPesan = null; }
-        if (pemantauStatus) { pemantauStatus(); pemantauStatus = null; }
+        if (pemantauMetadataOrder) { pemantauMetadataOrder(); pemantauMetadataOrder = null; }
         if (this.pemantauRuang) { this.pemantauRuang(); this.pemantauRuang = null; }
         if (this.pemantauPesanUbah) { this.pemantauPesanUbah(); this.pemantauPesanUbah = null; }
+
+        if (uidPengemudiTarget && idTiketAktif) {
+            this._hapusRadarTiketREST(uidPengemudiTarget, idTiketAktif);
+        }
         
         localStorage.removeItem('bgt_active_chat');
         
@@ -1047,6 +1279,10 @@ window.ChatHandshake = {
         
         idTiketAktif = null;
         uidPengemudiTarget = null;
+        payloadTiketAktif = null;
+
+        // WAJIB PUTUS KONEKSI WEBSOCKET SAAT SESI BERAKHIR
+        this.putuskanKoneksiChat();
         
         if (window.periksaSesiChatAktif) window.periksaSesiChatAktif();
 
@@ -1063,7 +1299,7 @@ window.ChatHandshake = {
     bukaLayarPenuhGambar: function(urlGambar) {
         const modal = document.getElementById('modal-fullscreen-img');
         const targetImg = document.getElementById('fullscreen-img-target');
-        if(modal && targetImg) {
+        if (modal && targetImg) {
             targetImg.src = urlGambar;
             modal.classList.remove('hidden-state');
             requestAnimationFrame(() => modal.classList.remove('opacity-0'));
@@ -1072,29 +1308,36 @@ window.ChatHandshake = {
 
     tutupLayarPenuhGambar: function() {
         const modal = document.getElementById('modal-fullscreen-img');
-        if(modal) {
+        if (modal) {
             modal.classList.add('opacity-0');
             setTimeout(() => { modal.classList.add('hidden-state'); document.getElementById('fullscreen-img-target').src = ''; }, 300);
         }
     }
 };
 
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
-        if (window.ChatHandshake) window.ChatHandshake.pulihkanSesiAktif();
-    });
-} else {
+const jalankanPemulihanAwalChat = () => {
     if (window.ChatHandshake) window.ChatHandshake.pulihkanSesiAktif();
+};
+
+if (window.ConfigManager && window.ConfigManager.isLoaded) {
+    jalankanPemulihanAwalChat();
+} else {
+    window.addEventListener('bgn_config_loaded', jalankanPemulihanAwalChat, { once: true });
 }
 
-// FIX TAHAP 2: FALLBACK TIMEOUT IDLE
-let timerPemutusKoneksi = null;
 document.addEventListener("visibilitychange", () => {
+    const idleMs = window.BGN_CONFIG?.rules_app?.chat_controls?.idle_disconnect_timeout_ms;
     if (document.visibilityState === 'hidden') {
-        const idleMs = window.BGN_CONFIG?.rules_app?.chat_controls?.idle_disconnect_timeout_ms || 60000;
-        timerPemutusKoneksi = setTimeout(() => { if (dbChat) goOffline(dbChat); }, idleMs);
+        if (idleMs) {
+            timerPemutusKoneksi = setTimeout(() => {
+                if (dbChat) goOffline(dbChat);
+            }, idleMs);
+        }
     } else {
         clearTimeout(timerPemutusKoneksi);
-        if (dbChat) goOnline(dbChat);
+        const panel = document.getElementById('panel-komunikasi-utama');
+        if (dbChat && idTiketAktif && panel && panel.style.display !== 'none') {
+            goOnline(dbChat);
+        }
     }
 });

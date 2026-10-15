@@ -1,13 +1,12 @@
 // ==========================================
 // FILE: chat/cloud-media.js
-// FUNGSI: Transmisi Media Awan (Cloudinary) Murni (OTA READY)
+// FUNGSI: Transmisi Media Awan (Cloudinary) Murni (V8 ZERO HARDCODE)
 // ==========================================
 
 export async function uploadMediaKeCloudinary(fileBlob, tipeData = 'image') {
-    // Menarik kredensial dari RAM secara Real-Time (Mencegah Hardcode)
     const config = window.BGN_CONFIG?.settings?.cloudinary;
-    if (!config) {
-        console.error("[MODUL MEDIA] Kredensial Cloudinary belum dimuat.");
+    if (!config || !config.cloud_name || !config.upload_preset || !config.api_base_url) {
+        console.error("[MODUL MEDIA] Kredensial Cloudinary belum dimuat di settings.json.");
         return null;
     }
 
@@ -16,7 +15,7 @@ export async function uploadMediaKeCloudinary(fileBlob, tipeData = 'image') {
     formData.append('upload_preset', config.upload_preset);
 
     const endpointTipe = tipeData === 'audio' ? 'video' : 'image';
-    const apiUrl = `https://api.cloudinary.com/v1_1/${config.cloud_name}/${endpointTipe}/upload`;
+    const apiUrl = `${config.api_base_url}/${config.cloud_name}/${endpointTipe}/upload`;
 
     try {
         const respon = await fetch(apiUrl, { method: 'POST', body: formData });
