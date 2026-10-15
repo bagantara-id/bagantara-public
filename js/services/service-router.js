@@ -1,6 +1,6 @@
 // ==========================================
-// PENGATUR LALU LINTAS & SARAF INTI GLOBAL (SERVICE ROUTER V6 - DRIVER-FIRST)
-// ARSITEKTUR: MODULAR ISOLATED ROUTING & CLEAN CATALOG HOME RESET
+// PENGATUR LALU LINTAS & SARAF INTI GLOBAL (SERVICE ROUTER V8 - DRIVER-FIRST & PEAK HOURS)
+// ARSITEKTUR: MODULAR ISOLATED ROUTING, PEAK HOURS SURGE ENGINE, & ZERO FALLBACK
 // ==========================================
 
 window.ServiceRouter = {
@@ -11,11 +11,11 @@ window.ServiceRouter = {
         const labelLayanan = document.getElementById('labelLayananPeta');
         if (labelLayanan) labelLayanan.innerText = service;
 
-        const layananConfig = window.BGN_CONFIG?.layanan?.services;
+        const layananConfig = window.BGN_CONFIG.layanan.services;
         if (!layananConfig || layananConfig[service] === false) {
-            const txtAlert = window.BGN_CONFIG?.wording?.alerts?.service_disabled || "Layanan ini sedang tidak aktif.";
+            const txtAlert = window.BGN_CONFIG.wording.alerts.service_disabled;
             if (window.UIManager && window.UIManager.alertConfig) {
-                window.UIManager.alertConfig('dynamic', txtAlert);
+                window.UIManager.alertConfig('service_disabled', txtAlert);
             } else {
                 alert(txtAlert);
             }
@@ -24,18 +24,18 @@ window.ServiceRouter = {
 
         if (!window.BAGANTARA_ACTIVE_ZONE_ID) {
             let fallbackZoneId = null;
-            const zoneData = window.BGN_CONFIG?.zones;
+            const zoneData = window.BGN_CONFIG.zones;
+            const earthR = window.BGN_CONFIG.rules_app.system_controls.earth_radius_km;
             
             if (window.BAGANTARA_ACTIVE_COORD && zoneData && zoneData.active_zones) {
                 const getHaversine = (lat1, lon1, lat2, lon2) => {
                     if (window.AegisEngine && typeof window.AegisEngine.calculateDistance === 'function') {
                         return window.AegisEngine.calculateDistance(lat1, lon1, lat2, lon2);
                     }
-                    const R = 6371; 
                     const dLat = (lat2 - lat1) * Math.PI / 180;
                     const dLon = (lon2 - lon1) * Math.PI / 180;
-                    const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
-                    return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
+                    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+                    return earthR * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
                 };
 
                 for (const z of zoneData.active_zones) {
@@ -51,8 +51,8 @@ window.ServiceRouter = {
             }
 
             if (!fallbackZoneId) {
-                const zMsg = window.BGN_CONFIG?.zones?.default_locked_message;
-                const txtAlertZone = zMsg ? `${zMsg.title}\n\n${zMsg.body}` : "Zona layanan belum tersedia atau GPS masih memindai. Silakan coba lagi sebentar.";
+                const zMsg = window.BGN_CONFIG.zones.default_locked_message;
+                const txtAlertZone = `${zMsg.title}\n\n${zMsg.body}`;
                 if (window.UIManager && window.UIManager.alertConfig) {
                     window.UIManager.alertConfig('dynamic', txtAlertZone.replace(/\n/g, '<br>'));
                 } else {
@@ -73,8 +73,8 @@ window.ServiceRouter = {
             if (window.FlowJastip) window.FlowJastip.init();
             else console.error("FlowJastip tidak ditemukan!");
         } else {
-            const wAlerts = window.BGN_CONFIG?.wording?.alerts || {};
-            alert(wAlerts.service_empty || "Layanan belum tersedia.");
+            const wAlerts = window.BGN_CONFIG.wording.alerts;
+            alert(wAlerts.service_empty);
         }
     }
 };
@@ -114,6 +114,7 @@ window.SystemReset = function() {
     window.BAGANTARA_JASTIP_VALUE = 0;
     window.BAGANTARA_FINAL_PRICE = 0;
     window.BAGANTARA_DISTANCE_KM = 0;
+    window.BAGANTARA_ACTIVE_PEAK_RULE = null;
     window.BAGANTARA_PRELOCKED_DRIVER = null;
     window.BAGANTARA_MAP_TARGET_INDEX = 1;
     window.TEMPORARY_GEOCODE = null;
@@ -162,7 +163,8 @@ window.SystemReset = function() {
 document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('mapStopped', () => {
         const liveAddressTitle = document.getElementById('liveAddressTitle');
-        if (liveAddressTitle) liveAddressTitle.innerText = window.TEMPORARY_GEOCODE || "Mencari Lokasi GPS...";
+        const searchingGps = window.BGN_CONFIG.wording.map_pins.searching_gps;
+        if (liveAddressTitle) liveAddressTitle.innerText = window.TEMPORARY_GEOCODE ? window.TEMPORARY_GEOCODE : searchingGps;
     });
 
     window.addEventListener('forceWizardState', (e) => {
@@ -177,10 +179,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     window.addEventListener('priceCalculated', async (e) => {
-        const distance = parseFloat(e.detail.distance) || 0;
-        const alertRoute = window.BGN_CONFIG?.wording?.alerts?.route_invalid || "Gagal menghitung rute. Titik tidak valid.";
+        const distance = parseFloat(e.detail.distance);
+        const wAlerts = window.BGN_CONFIG.wording.alerts;
+        const wPopup = window.BGN_CONFIG.wording.mitra_popup;
+        const alertRoute = wAlerts.route_invalid;
         
-        if (distance <= 0) {
+        if (isNaN(distance) || distance <= 0) {
             if (window.SystemReset) window.SystemReset();
             if (window.UIManager && window.UIManager.alertConfig) window.UIManager.alertConfig('route_invalid', alertRoute);
             else alert(alertRoute);
@@ -188,11 +192,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         
         window.BAGANTARA_DISTANCE_KM = distance; 
-        const service = window.BAGANTARA_SERVICE || 'RIDE';
+        const service = window.BAGANTARA_SERVICE ? window.BAGANTARA_SERVICE : wPopup.default_service;
         
         try {
-            const tariffData = window.BGN_CONFIG?.tariffs;
-            const zoneData = window.BGN_CONFIG?.zones;
+            const tariffData = window.BGN_CONFIG.tariffs;
+            const zoneData = window.BGN_CONFIG.zones;
+            const peakData = window.BGN_CONFIG.peak_hours;
+            const sysCtrl = window.BGN_CONFIG.rules_app.system_controls;
             
             if (!tariffData || !tariffData.zones) throw new Error("TARIF_KOSONG");
             if (!zoneData) throw new Error("ZONA_KOSONG");
@@ -204,11 +210,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (window.AegisEngine && typeof window.AegisEngine.calculateDistance === 'function') {
                         return window.AegisEngine.calculateDistance(lat1, lon1, lat2, lon2);
                     }
-                    const R = 6371; 
+                    const R = sysCtrl.earth_radius_km; 
                     const dLat = (lat2 - lat1) * Math.PI / 180;
                     const dLon = (lon2 - lon1) * Math.PI / 180;
-                    const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
-                    return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
+                    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+                    return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
                 };
 
                 const [pLat, pLng] = window.BAGANTARA_PICKUP_COORD.split(',').map(Number);
@@ -234,7 +240,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (!activeZone) throw new Error("LOKASI_LUAR_ZONA");
 
-            const zoneTariffs = tariffData.zones || {};
+            const zoneTariffs = tariffData.zones;
             const currentZoneRules = zoneTariffs[activeZone];
             if (!currentZoneRules) throw new Error("TARIF_KOSONG");
             
@@ -257,25 +263,66 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
 
-            window.BAGANTARA_FINAL_PRICE = Math.ceil(finalPriceRaw / 100) * 100; 
+            // INTEGRASI KALKULASI JAM SIBUK (PEAK HOURS) DARI data/peak-hours.json
+            window.BAGANTARA_ACTIVE_PEAK_RULE = null;
+            if (peakData && peakData.zones && peakData.zones[activeZone]) {
+                const zonePeak = peakData.zones[activeZone];
+                if (zonePeak.is_active === true && Array.isArray(zonePeak.rules)) {
+                    const now = new Date();
+                    const nowMinutes = (now.getHours() * 60) + now.getMinutes();
+
+                    const parseTimeMinutes = (timeStr) => {
+                        if (!timeStr) return -1;
+                        const parts = String(timeStr).split(':');
+                        if (parts.length < 2) return -1;
+                        return (parseInt(parts[0], 10) * 60) + parseInt(parts[1], 10);
+                    };
+
+                    for (let i = 0; i < zonePeak.rules.length; i++) {
+                        const pRule = zonePeak.rules[i];
+                        const startMin = parseTimeMinutes(pRule.start_time);
+                        const endMin = parseTimeMinutes(pRule.end_time);
+
+                        if (startMin >= 0 && endMin >= 0) {
+                            const isInWindow = startMin <= endMin
+                                ? (nowMinutes >= startMin && nowMinutes <= endMin)
+                                : (nowMinutes >= startMin || nowMinutes <= endMin);
+
+                            if (isInWindow) {
+                                const mult = parseFloat(pRule.multiplier_factor);
+                                const flat = parseFloat(pRule.markup_flat);
+                                if (!isNaN(mult) && mult > 0) finalPriceRaw = finalPriceRaw * mult;
+                                if (!isNaN(flat) && flat > 0) finalPriceRaw = finalPriceRaw + flat;
+                                window.BAGANTARA_ACTIVE_PEAK_RULE = pRule.name;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            const roundingStep = sysCtrl.price_rounding_step;
+            window.BAGANTARA_FINAL_PRICE = Math.ceil(finalPriceRaw / roundingStep) * roundingStep; 
             
             if (service === 'JASTIP' && window.FlowJastip && typeof window.FlowJastip.overrideJastipPriceDisplay === 'function') {
                 window.FlowJastip.overrideJastipPriceDisplay();
             } else {
-                const formatHarga = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(window.BAGANTARA_FINAL_PRICE);
+                const formatHarga = new Intl.NumberFormat('id-ID', { style: 'currency', currency: tariffData.currency, minimumFractionDigits: 0 }).format(window.BAGANTARA_FINAL_PRICE);
                 const priceValueEl = document.getElementById('priceValue');
                 if (priceValueEl) {
-                    priceValueEl.innerHTML = `${formatHarga} <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: normal; margin-left: 8px;">(${distance.toFixed(1)} KM)</span>`;
+                    const peakHtml = window.BAGANTARA_ACTIVE_PEAK_RULE
+                        ? ` <span style="font-size: 0.65rem; color: var(--neon-gold); font-weight: bold; margin-left: 6px;">(${wPopup.peak_hour_badge_prefix} ${window.BAGANTARA_ACTIVE_PEAK_RULE})</span>`
+                        : '';
+                    priceValueEl.innerHTML = `${formatHarga} <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: normal; margin-left: 8px;">(${distance.toFixed(1)} KM)</span>${peakHtml}`;
                 }
             }
         } catch (err) {
             console.error("[Tariff Engine Error]", err);
-            const wAlerts = window.BGN_CONFIG?.wording?.alerts || {};
-            let pesanError = wAlerts.calc_failed || "Gagal memproses data.";
+            let pesanError = wAlerts.calc_failed;
             
-            if (err.message === "LOKASI_LUAR_ZONA") pesanError = wAlerts.out_of_zone || "Titik penjemputan berada di luar zona operasional yang aktif.";
-            else if (err.message === "TARIF_KOSONG") pesanError = wAlerts.tariff_empty || `Struktur tarif wilayah belum dikonfigurasi.`;
-            else if (err.message === "LAYANAN_KOSONG") pesanError = wAlerts.service_empty || `Layanan '${service}' tidak tersedia di wilayah ini.`;
+            if (err.message === "LOKASI_LUAR_ZONA") pesanError = wAlerts.out_of_zone;
+            else if (err.message === "TARIF_KOSONG") pesanError = wAlerts.tariff_empty;
+            else if (err.message === "LAYANAN_KOSONG") pesanError = wAlerts.service_empty;
 
             if (window.UIManager && window.UIManager.alertConfig) window.UIManager.alertConfig('dynamic', pesanError);
             else alert(pesanError); 
