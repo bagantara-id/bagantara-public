@@ -1071,7 +1071,6 @@ window.ChatHandshake = {
                 waktu_update: Date.now()
             }).catch(() => {});
 
-            // Tembakkan FCM Chat Wake-Up ke Driver (dengan throttle 10 detik untuk hemat kuota) jika bukan katalog_order
             const now = Date.now();
             if (tipePesan !== 'katalog_order' && (now - lastChatFcmTimestamp >= 10000)) {
                 lastChatFcmTimestamp = now;
@@ -1294,19 +1293,37 @@ window.ChatHandshake = {
         });
     },
 
+    // Sound Effect: 4. Pesan Pelanggan (Hanya berbunyi 2 kali saja)
     mainkanSuara: function() {
         try {
-            const AudioCtx = window.AudioContext ? window.AudioContext : window.webkitAudioContext;
-            const ctx = new AudioCtx();
-            const osc = ctx.createOscillator();
-            const gain = ctx.createGain();
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(880, ctx.currentTime);
-            osc.frequency.exponentialRampToValueAtTime(1760, ctx.currentTime + 0.1);
-            gain.gain.setValueAtTime(0.5, ctx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
-            osc.connect(gain); gain.connect(ctx.destination);
-            osc.start(); osc.stop(ctx.currentTime + 0.3);
+            if (!this._audioCtx) {
+                const AudioCtx = window.AudioContext ? window.AudioContext : window.webkitAudioContext;
+                this._audioCtx = new AudioCtx();
+            }
+            if (this._audioCtx.state === 'suspended') {
+                this._audioCtx.resume().catch(() => {});
+            }
+            const synth = function(audioCtx) {
+                const t = audioCtx.currentTime;
+                for (let i = 0; i < 2; i++) { // Hanya berbunyi 2 kali saja
+                    const start = t + (i * 2);
+                    [1500, 2000].forEach((freq, idx) => {
+                        const o = audioCtx.createOscillator();
+                        const g = audioCtx.createGain();
+                        o.type = 'sine';
+                        o.frequency.value = freq;
+                        const d = start + (idx * 0.15);
+                        g.gain.setValueAtTime(0, d);
+                        g.gain.linearRampToValueAtTime(0.7, d + 0.05);
+                        g.gain.exponentialRampToValueAtTime(0.001, d + 1.5);
+                        o.connect(g);
+                        g.connect(audioCtx.destination);
+                        o.start(d);
+                        o.stop(d + 1.5);
+                    });
+                }
+            };
+            synth(this._audioCtx);
         } catch (e) {}
     },
 
