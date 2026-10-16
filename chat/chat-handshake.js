@@ -1,8 +1,8 @@
 // ==========================================================================
 // FILE: chat/chat-handshake.js (APLIKASI PUBLIK / KLIEN - V8 FINAL)
 // FUNGSI: Protokol Handshake REST RTDB Ke-3 (futaqi-ali), Chat P2P (chatting-88040),
+//         Inovasi Tombol "🔔 DERINGKAN DRIVER" (Sonar Ping), Fix CORS GAS FCM,
 //         Preservasi Uang Tip 100%, Manajemen goOnline/goOffline, & Sanitasi Anti-XSS
-// ARSITEKTUR: MURNI DELEGASI ES6 (100% ZERO HARDCODE & ZERO FALLBACK)
 // ==========================================================================
 
 import { dbChat, initFirebaseChat, getRadarDatabaseUrl } from './config-chat.js';
@@ -18,6 +18,8 @@ let timerPollingRadar = null;
 let timerPemutusKoneksi = null;
 let perakamAudio = null;
 let potonganAudio = [];
+let lastSonarPingTimestamp = 0;
+let lastChatFcmTimestamp = 0;
 
 export function escapeHTML(str) {
     if (str === null || str === undefined) return '';
@@ -58,6 +60,93 @@ window.ChatHandshake = {
             clearInterval(timerPollingRadar);
             timerPollingRadar = null;
         }
+    },
+
+    // FIX MUTLAK W3C FETCH SPEC: Gunakan Content-Type 'text/plain;charset=utf-8' pada mode 'no-cors'
+    // agar browser TIDAK memblokir pengiriman POST JSON ke Google Apps Script!
+    _kirimPushFCMKeGAS: function(uidDriver, payloadExtra = {}) {
+        try {
+            const urlGAS = window.BGN_CONFIG?.settings?.micro_backend?.gas_fcm_url;
+            if (!uidDriver || !urlGAS) return;
+
+            const fcmTokenDriver = window.BAGANTARA_DRIVER?.fcmToken
+                ? window.BAGANTARA_DRIVER.fcmToken
+                : (window.BAGANTARA_DRIVER_CACHE?.[uidDriver]?.fcmToken ? window.BAGANTARA_DRIVER_CACHE[uidDriver].fcmToken : "");
+
+            const bodyPayload = {
+                fcmToken: fcmTokenDriver,
+                idTiket: idTiketAktif || "",
+                uidDriver: uidDriver,
+                ...payloadExtra
+            };
+
+            fetch(urlGAS, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify(bodyPayload)
+            }).catch(() => {});
+        } catch (e) {}
+    },
+
+    // INOVASI CERDIK BERLIAN: Tombol "🔔 DERINGKAN DRIVER" (Tactical Sonar Ping dengan Cooldown 15 Detik)
+    deringkanDriverSekarang: async function(btnElem = null) {
+        if (!idTiketAktif || !uidPengemudiTarget) return;
+        const now = Date.now();
+        const selisihDetik = Math.ceil((15000 - (now - lastSonarPingTimestamp)) / 1000);
+        if (now - lastSonarPingTimestamp < 15000) {
+            if (window.UIManager) window.UIManager.alert(`Tunggu ${selisihDetik} detik sebelum menderingkan driver kembali.`);
+            return;
+        }
+        lastSonarPingTimestamp = now;
+
+        if (btnElem) {
+            const teksAsli = btnElem.innerHTML;
+            btnElem.disabled = true;
+            btnElem.style.opacity = '0.6';
+            btnElem.innerHTML = `<i class="fa-solid fa-bell fa-shake"></i> MENDERINGKAN...`;
+            setTimeout(() => {
+                if (btnElem) {
+                    btnElem.disabled = false;
+                    btnElem.style.opacity = '1';
+                    btnElem.innerHTML = teksAsli;
+                }
+            }, 15000);
+        }
+
+        try {
+            this.aktifkanKoneksiChat();
+            const radarBaseUrl = getRadarDatabaseUrl();
+            if (radarBaseUrl) {
+                const urlPatch = `${radarBaseUrl}/radar_tiket/${encodeURIComponent(uidPengemudiTarget)}/${encodeURIComponent(idTiketAktif)}.json`;
+                fetch(urlPatch, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ping_alert: now })
+                }).catch(() => {});
+            }
+
+            if (dbChat) {
+                await push(ref(dbChat, `sesi_komunikasi/${idTiketAktif}/pesan`), {
+                    pengirim: "klien",
+                    tipe: "sistem_ping",
+                    konten: "🔔 Penumpang memanggil Anda! Mohon segera merespons pesanan.",
+                    waktu: now,
+                    status: "sent"
+                }).catch(() => {});
+            }
+
+            const namaKlien = payloadTiketAktif?.nama_klien || "Penumpang";
+            const layanan = payloadTiketAktif?.layanan || "ORDER";
+            this._kirimPushFCMKeGAS(uidPengemudiTarget, {
+                type: "SONAR_PING",
+                layanan: layanan,
+                harga: payloadTiketAktif?.harga_tawaran || 0,
+                tip: payloadTiketAktif?.tip_nominal || 0,
+                title: `🔔 PANGGILAN DARURAT: ${namaKlien}`,
+                body: `Penumpang menderingkan radar untuk pesanan ${layanan}. Ketuk untuk membuka kokpit!`
+            });
+        } catch (e) {}
     },
 
     _tembakRadarTiketREST: async function(uidDriver, idTiket, dataTiket) {
@@ -168,11 +257,23 @@ window.ChatHandshake = {
             const htmlTunggu = `
                 <div id="ui-tunggu-acc" style="text-align:center; margin-top:15px; display:flex; flex-direction:column; gap:10px; align-items:center;">
                     <div style="color:#ceab6b; font-size:0.75rem; font-weight:bold;">${txtTunggu}</div>
-                    <button id="btnBatalMandiri" style="background:rgba(239, 68, 68, 0.1); border:1px solid #ef4444; color:#ef4444; padding:8px 16px; border-radius:8px; font-size:0.7rem; font-weight:bold; cursor:pointer;">${txtBatal}</button>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:center;">
+                        <button id="btnDeringkanDriverWait" type="button" style="background:rgba(245, 158, 11, 0.18); border:1px solid #f59e0b; color:#fbbf24; padding:8px 14px; border-radius:8px; font-size:0.7rem; font-weight:bold; cursor:pointer; display:flex; align-items:center; gap:6px; box-shadow:0 0 12px rgba(245,158,11,0.25);">
+                            <i class="fa-solid fa-bell"></i> DERINGKAN DRIVER
+                        </button>
+                        <button id="btnBatalMandiri" type="button" style="background:rgba(239, 68, 68, 0.1); border:1px solid #ef4444; color:#ef4444; padding:8px 16px; border-radius:8px; font-size:0.7rem; font-weight:bold; cursor:pointer;">${txtBatal}</button>
+                    </div>
                 </div>
             `;
             wadahChat.insertAdjacentHTML('beforeend', htmlTunggu);
             
+            const btnDeringWait = document.getElementById('btnDeringkanDriverWait');
+            if (btnDeringWait) {
+                btnDeringWait.addEventListener('click', (e) => {
+                    this.deringkanDriverSekarang(e.currentTarget);
+                });
+            }
+
             document.getElementById('btnBatalMandiri').addEventListener('click', () => {
                 this.batalkanSesi(wAlerts.chat_cancel_manual);
             });
@@ -211,38 +312,20 @@ window.ChatHandshake = {
                 waktu_update: waktuDibuat
             });
 
-            // 3. Pemicu Micro-Backend GAS FCM HTTP v1 (Dual-Resolver Firestore /fcm_tokens/{uidDriver})
-            try {
-                const fcmTokenDriver = window.BAGANTARA_DRIVER?.fcmToken
-                    ? window.BAGANTARA_DRIVER.fcmToken
-                    : (window.BAGANTARA_DRIVER_CACHE?.[uidDriver]?.fcmToken ? window.BAGANTARA_DRIVER_CACHE[uidDriver].fcmToken : "");
-                const urlGAS = window.BGN_CONFIG.settings.micro_backend.gas_fcm_url;
+            // 3. Pemicu Micro-Backend GAS FCM HTTP v1 (Menggunakan Content-Type: text/plain;charset=utf-8 agar tidak diblokir no-cors!)
+            const fcmBody = wChat.fcm_new_order_body_template
+                .replace('{layanan}', payloadTiketAktif.layanan)
+                .replace('{nama}', payloadTiketAktif.nama_klien)
+                .replace('{harga}', (payloadTiketAktif.harga_tawaran).toLocaleString('id-ID'));
 
-                if (uidDriver && urlGAS) {
-                    const fcmBody = wChat.fcm_new_order_body_template
-                        .replace('{layanan}', payloadTiketAktif.layanan)
-                        .replace('{nama}', payloadTiketAktif.nama_klien)
-                        .replace('{harga}', (payloadTiketAktif.harga_tawaran).toLocaleString('id-ID'));
-
-                    fetch(urlGAS, {
-                        method: 'POST',
-                        mode: 'no-cors',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            fcmToken: fcmTokenDriver,
-                            idTiket: idTiketAktif,
-                            uidDriver: uidDriver,
-                            layanan: payloadTiketAktif.layanan,
-                            harga: payloadTiketAktif.harga_tawaran,
-                            tip: payloadTiketAktif.tip_nominal,
-                            title: wChat.fcm_new_order_title,
-                            body: fcmBody
-                        })
-                    }).catch(() => {});
-                }
-            } catch (fcmError) {
-                console.warn("[FCM] Gagal memicu Push Notifikasi, order RTDB tetap jalan.");
-            }
+            this._kirimPushFCMKeGAS(uidDriver, {
+                type: "NEW_ORDER",
+                layanan: payloadTiketAktif.layanan,
+                harga: payloadTiketAktif.harga_tawaran,
+                tip: payloadTiketAktif.tip_nominal,
+                title: wChat.fcm_new_order_title,
+                body: fcmBody
+            });
             
             let isAccepted = false;
 
@@ -429,6 +512,21 @@ window.ChatHandshake = {
         const titleEl = clone.querySelector('.tpl-chat-title');
         titleEl.textContent = `${wChat.session_title_prefix} ${idTiketAktif.substring(0, 8)}`;
 
+        // INOVASI CERDIK: Tambahkan tombol lonceng "🔔 Deringkan Driver" di header ruang chat (di samping tombol WA)
+        const btnWaHeader = clone.querySelector('.tpl-btn-wa-driver');
+        if (btnWaHeader && btnWaHeader.parentNode) {
+            const btnBellHeader = document.createElement('button');
+            btnBellHeader.type = 'button';
+            btnBellHeader.id = 'btnDeringkanDriverHeader';
+            btnBellHeader.title = 'Deringkan & Getarkan HP Driver';
+            btnBellHeader.style.cssText = 'background:rgba(245,158,11,0.18); border:1px solid #f59e0b; color:#fbbf24; padding:6px 10px; border-radius:8px; font-size:0.7rem; font-weight:bold; cursor:pointer; display:flex; align-items:center; gap:5px;';
+            btnBellHeader.innerHTML = '<i class="fa-solid fa-bell"></i> <span>DERINGKAN</span>';
+            btnBellHeader.addEventListener('click', (e) => {
+                this.deringkanDriverSekarang(e.currentTarget);
+            });
+            btnWaHeader.parentNode.insertBefore(btnBellHeader, btnWaHeader);
+        }
+
         const btnKirim = clone.querySelector('.tpl-btn-send');
         const inputTeks = clone.querySelector('.tpl-chat-teks');
         const btnToggle = clone.querySelector('.tpl-btn-toggle');
@@ -559,7 +657,6 @@ window.ChatHandshake = {
         inpKamera.addEventListener('change', (e) => { if (e.target.files.length > 0) prosesUploadVisual(e.target.files[0], wChat.source_camera); });
         inpGaleri.addEventListener('change', (e) => { if (e.target.files.length > 0) prosesUploadVisual(e.target.files[0], wChat.source_gallery); });
 
-        const btnWaHeader = clone.querySelector('.tpl-btn-wa-driver');
         if (isRecovery && btnWaHeader && window.BAGANTARA_DRIVER && window.BAGANTARA_DRIVER.wa) {
             btnWaHeader.classList.remove('hidden-state');
             btnWaHeader.addEventListener('click', () => {
@@ -576,7 +673,6 @@ window.ChatHandshake = {
                     panel.style.animation = 'slideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1) reverse forwards';
                     setTimeout(() => {
                         panel.style.display = 'none';
-                        // Putuskan koneksi WebSocket saat ruang chat diminimalkan apabila sesi sudah terhubung (bukan sedang menunggu ACC)
                         if (localStorage.getItem('bgt_active_chat')) {
                             this.putuskanKoneksiChat();
                         }
@@ -868,7 +964,6 @@ window.ChatHandshake = {
 
         if (!isRecovery) {
             const delayKatalogMs = chatCtrl.catalog_send_delay_ms;
-            // Ambil referensi payloadTiket yang sudah dikunci secara utuh (Anti-Reset Tip Rp 0)
             const lockedOrder = orderPayload ? orderPayload : (payloadTiketAktif ? payloadTiketAktif : window.BAGANTARA_LAST_ORDER_PAYLOAD);
             
             this.timeoutKatalog = setTimeout(async () => {
@@ -917,7 +1012,6 @@ window.ChatHandshake = {
                     labelTujuanFaktual = labelTujuan;
                 }
 
-                // MURNI MENGGUNAKAN NILAI DARI lockedOrder (payloadTiket) TANPA MEMBACA ULANG DOM YANG SUDAH DIRESET!
                 const hargaDasar = parseInt(lockedOrder.harga_dasar, 10) ? parseInt(lockedOrder.harga_dasar, 10) : 0;
                 const nominalTip = parseInt(lockedOrder.tip_nominal, 10) ? parseInt(lockedOrder.tip_nominal, 10) : 0;
                 const hargaTotal = parseInt(lockedOrder.harga_tawaran, 10) ? parseInt(lockedOrder.harga_tawaran, 10) : (hargaDasar + nominalTip);
@@ -976,6 +1070,19 @@ window.ChatHandshake = {
                 pesan_terakhir: preview,
                 waktu_update: Date.now()
             }).catch(() => {});
+
+            // Tembakkan FCM Chat Wake-Up ke Driver (dengan throttle 10 detik untuk hemat kuota) jika bukan katalog_order
+            const now = Date.now();
+            if (tipePesan !== 'katalog_order' && (now - lastChatFcmTimestamp >= 10000)) {
+                lastChatFcmTimestamp = now;
+                const namaKlien = payloadTiketAktif?.nama_klien || "Penumpang";
+                this._kirimPushFCMKeGAS(uidPengemudiTarget, {
+                    type: "CHAT_MESSAGE",
+                    layanan: payloadTiketAktif?.layanan || "CHAT",
+                    title: `💬 Pesan dari ${namaKlien}`,
+                    body: String(preview).substring(0, 120)
+                });
+            }
         }
     },
 
@@ -1006,6 +1113,10 @@ window.ChatHandshake = {
             const pesan = snapshot.val();
             if (!wadahChat || !pesan) return;
 
+            if (pesan.tipe === 'sistem_ping') {
+                return;
+            }
+
             if (pesan.tipe === 'sistem_tolak') {
                 if (this.timeoutPesanan) { clearTimeout(this.timeoutPesanan); this.timeoutPesanan = null; }
                 this._hentikanPollingRadar();
@@ -1033,7 +1144,6 @@ window.ChatHandshake = {
             const posisiKelas = pesan.pengirim === 'klien' ? 'msg-mitra' : 'msg-klien';
             let htmlKonten = '';
 
-            // SANITASI ANTI-XSS MENYELURUH DENGAN escapeHTML()
             if (pesan.tipe === 'teks') {
                 htmlKonten = `<p>${escapeHTML(pesan.konten)}</p>`;
             } else if (pesan.tipe === 'katalog_order') {
@@ -1237,7 +1347,6 @@ window.ChatHandshake = {
             document.removeEventListener('touchend', this._handleEndPersisten);
         }
 
-        // WAJIB PUTUS KONEKSI WEBSOCKET SAAT SESI DIAKHIRI
         this.putuskanKoneksiChat();
         
         if (window.periksaSesiChatAktif) window.periksaSesiChatAktif();
@@ -1281,7 +1390,6 @@ window.ChatHandshake = {
         uidPengemudiTarget = null;
         payloadTiketAktif = null;
 
-        // WAJIB PUTUS KONEKSI WEBSOCKET SAAT SESI BERAKHIR
         this.putuskanKoneksiChat();
         
         if (window.periksaSesiChatAktif) window.periksaSesiChatAktif();
