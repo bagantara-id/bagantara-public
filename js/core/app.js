@@ -7,7 +7,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnPulihkanChat = document.getElementById('btnPulihkanChat');
     window.periksaSesiChatAktif = function() {
         const sesiTersimpan = localStorage.getItem('bgt_active_chat');
-        if (sesiTersimpan && btnPulihkanChat) {
+        const sesiMemoriAktif = Boolean(window.ChatHandshake && typeof window.ChatHandshake.isSesiAktif === 'function' && window.ChatHandshake.isSesiAktif());
+        const panel = document.getElementById('panel-komunikasi-utama');
+        const isPanelTerbuka = Boolean(panel && panel.style.display !== 'none');
+
+        if ((sesiTersimpan || sesiMemoriAktif) && !isPanelTerbuka && btnPulihkanChat) {
             btnPulihkanChat.classList.remove('hidden');
         } else if (btnPulihkanChat) {
             btnPulihkanChat.classList.add('hidden');
@@ -133,11 +137,11 @@ document.addEventListener('DOMContentLoaded', () => {
             navHome.classList.add('active');
             window.spaNavigateTo('view-mitra-map');
             
-            const adaSesiChat = localStorage.getItem('bgt_active_chat');
+            const adaSesiChat = localStorage.getItem('bgt_active_chat') || (window.ChatHandshake && typeof window.ChatHandshake.isSesiAktif === 'function' && window.ChatHandshake.isSesiAktif());
             if (!adaSesiChat && window.SystemReset) {
                 window.SystemReset(); 
             } else if (window.UIManager && typeof window.UIManager.initMitraCatalog === 'function') {
-                window.UIManager.initMitraCatalog();
+                window.UIManager.loadMitraCatalog(false, true);
             }
             
             if (window.periksaSesiChatAktif) window.periksaSesiChatAktif();
@@ -211,6 +215,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const userLng = pos.coords.longitude;
                     let isInsideZone = false;
 
+                    window.BAGANTARA_USER_GPS_COORD = { lat: userLat, lng: userLng, ts: Date.now() };
                     window.BAGANTARA_ACTIVE_COORD = { lat: userLat, lng: userLng };
 
                     if (zoneData && Array.isArray(zoneData.active_zones)) {
@@ -219,7 +224,13 @@ document.addEventListener('DOMContentLoaded', () => {
                                 const dist = getHaversine(userLat, userLng, zone.center.lat, zone.center.lng);
                                 if (dist <= zone.radius_km) {
                                     isInsideZone = true;
-                                    window.BAGANTARA_ACTIVE_ZONE_ID = zone.zone_id; 
+                                    window.BAGANTARA_ACTIVE_ZONE_ID = zone.zone_id;
+                                    if (window.BGN_CONFIG?.settings?.map_config) {
+                                        window.BGN_CONFIG.settings.map_config.default_center = {
+                                            lat: parseFloat(zone.center.lat),
+                                            lng: parseFloat(zone.center.lng)
+                                        };
+                                    }
                                     break;
                                 }
                             }

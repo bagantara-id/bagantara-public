@@ -49,6 +49,20 @@ window.ConfigManager = {
             fetchJson(paths.peak_hours)
         ]);
 
+        // 3. SINKRONISASI PUSAT WILAYAH DINAMIS:
+        // Pastikan default_center mengikuti zona yang sedang aktif (is_open: true) di zones.json
+        if (zones && Array.isArray(zones.active_zones) && settings.map_config) {
+            const openZone = zones.active_zones.find(
+                z => z && z.is_open === true && z.center && !isNaN(parseFloat(z.center.lat)) && !isNaN(parseFloat(z.center.lng))
+            );
+            if (openZone) {
+                settings.map_config.default_center = {
+                    lat: parseFloat(openZone.center.lat),
+                    lng: parseFloat(openZone.center.lng)
+                };
+            }
+        }
+
         // Injeksi Murni Ke RAM (100% Zero Hardcode Fallback)
         window.BGN_CONFIG = {
             settings: settings,
@@ -62,11 +76,37 @@ window.ConfigManager = {
 
         this.isLoaded = true;
         window.dispatchEvent(new Event('bgn_config_loaded'));
-        console.log("[ConfigManager] Sinkronisasi OTA V8 Selesai (Termasuk Peak Hours & Firebase Radar).");
+        console.log("[ConfigManager] Sinkronisasi OTA V8 Selesai (Termasuk Peak Hours & Pusat Zona Dinamis).");
     },
     
     get: function(keyPath) {
         return keyPath.split('.').reduce((o, i) => (o ? o[i] : undefined), window.BGN_CONFIG);
+    },
+
+    getActiveZoneCenter: function() {
+        const zones = window.BGN_CONFIG?.zones?.active_zones;
+        if (Array.isArray(zones)) {
+            if (window.BAGANTARA_ACTIVE_ZONE_ID) {
+                const matched = zones.find(z => z && z.zone_id === window.BAGANTARA_ACTIVE_ZONE_ID && z.center);
+                if (matched && !isNaN(parseFloat(matched.center.lat)) && !isNaN(parseFloat(matched.center.lng))) {
+                    return {
+                        lat: parseFloat(matched.center.lat),
+                        lng: parseFloat(matched.center.lng),
+                        zone_id: matched.zone_id
+                    };
+                }
+            }
+            const firstOpen = zones.find(z => z && z.is_open === true && z.center && !isNaN(parseFloat(z.center.lat)) && !isNaN(parseFloat(z.center.lng)));
+            if (firstOpen) {
+                return {
+                    lat: parseFloat(firstOpen.center.lat),
+                    lng: parseFloat(firstOpen.center.lng),
+                    zone_id: firstOpen.zone_id
+                };
+            }
+        }
+        const defCenter = window.BGN_CONFIG?.settings?.map_config?.default_center;
+        return defCenter ? { lat: parseFloat(defCenter.lat), lng: parseFloat(defCenter.lng), zone_id: null } : { lat: -7.768049, lng: 112.196514, zone_id: null };
     }
 };
 
