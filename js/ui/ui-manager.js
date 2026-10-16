@@ -165,7 +165,12 @@ window.UIManager = {
             if (btnOpenApp) {
                 btnOpenApp.addEventListener('click', () => {
                     const mapCfg = window.BGN_CONFIG.settings.map_config;
-                    const c = window.BAGANTARA_ACTIVE_COORD ? window.BAGANTARA_ACTIVE_COORD : mapCfg.default_center;
+                    const dynCenter = (window.ConfigManager && typeof window.ConfigManager.getActiveZoneCenter === 'function')
+                        ? window.ConfigManager.getActiveZoneCenter()
+                        : mapCfg.default_center;
+                    const c = window.BAGANTARA_USER_GPS_COORD
+                        ? window.BAGANTARA_USER_GPS_COORD
+                        : (window.BAGANTARA_ACTIVE_COORD ? window.BAGANTARA_ACTIVE_COORD : dynCenter);
                     const rawQ = document.getElementById('inputGmapsCustomLabel')?.value?.trim();
                     const q = rawQ ? rawQ : '';
                     const gmapsUrl = q.length >= 2
@@ -336,7 +341,13 @@ window.UIManager = {
             if (removeCallback) removeCallback(targetSlot);
         });
 
-        container.appendChild(clone);
+        // Jaga urutan DOM agar rowDropoff2 selalu berada sebelum rowDropoff3
+        const existingRow3 = document.getElementById('rowDropoff3');
+        if (targetSlot === 2 && existingRow3 && existingRow3.parentNode === container) {
+            container.insertBefore(clone, existingRow3);
+        } else {
+            container.appendChild(clone);
+        }
 
         this.stopCount = container.querySelectorAll('.multi-target').length;
         if (this.stopCount >= maxStops && btnAdd) btnAdd.style.display = 'none';
@@ -400,6 +411,7 @@ window.UIManager = {
         
         window.LOCKED_SEARCH_COORD = null;
         window.LOCKED_SEARCH_TEXT = null;
+        window.LOCKED_SEARCH_TARGET = null;
 
         if (inputId === 'inputSearchPickup') {
             window.BAGANTARA_PICKUP_DETAIL = null;
@@ -442,7 +454,9 @@ window.UIManager = {
 
     initMitraCatalog: function() {
         const radarCfg = window.BGN_CONFIG.rules_app.radar_mitra;
-        const defCenter = window.BGN_CONFIG.settings.map_config.default_center;
+        const defCenter = (window.ConfigManager && typeof window.ConfigManager.getActiveZoneCenter === 'function')
+            ? window.ConfigManager.getActiveZoneCenter()
+            : window.BGN_CONFIG.settings.map_config.default_center;
         const defaultLimit = parseInt(radarCfg.max_drivers_rendered, 10);
 
         if (this._catalogActiveFilter === null) this._catalogActiveFilter = radarCfg.default_filter;
@@ -609,20 +623,29 @@ window.UIManager = {
         };
 
         if (useRamOnly) {
-            const lat = window.BAGANTARA_ACTIVE_COORD ? window.BAGANTARA_ACTIVE_COORD.lat : this._catalogLastLat;
-            const lng = window.BAGANTARA_ACTIVE_COORD ? window.BAGANTARA_ACTIVE_COORD.lng : this._catalogLastLng;
+            const lat = window.BAGANTARA_USER_GPS_COORD ? window.BAGANTARA_USER_GPS_COORD.lat : (window.BAGANTARA_ACTIVE_COORD ? window.BAGANTARA_ACTIVE_COORD.lat : this._catalogLastLat);
+            const lng = window.BAGANTARA_USER_GPS_COORD ? window.BAGANTARA_USER_GPS_COORD.lng : (window.BAGANTARA_ACTIVE_COORD ? window.BAGANTARA_ACTIVE_COORD.lng : this._catalogLastLng);
             await executeHydrationAt(lat, lng);
+            return;
+        }
+
+        // Hindari pemanggilan GPS ganda saat initGeoGatekeeper baru saja mendapatkan lokasi akurat
+        if (!forceRefresh && window.BAGANTARA_USER_GPS_COORD && (Date.now() - window.BAGANTARA_USER_GPS_COORD.ts < mapRouting.gps_max_age_ms)) {
+            await executeHydrationAt(window.BAGANTARA_USER_GPS_COORD.lat, window.BAGANTARA_USER_GPS_COORD.lng);
             return;
         }
 
         if (navigator.geolocation) {
             navigator.geolocation.getCurrentPosition(
                 (pos) => {
+                    window.BAGANTARA_USER_GPS_COORD = { lat: pos.coords.latitude, lng: pos.coords.longitude, ts: Date.now() };
                     window.BAGANTARA_ACTIVE_COORD = { lat: pos.coords.latitude, lng: pos.coords.longitude };
                     executeHydrationAt(pos.coords.latitude, pos.coords.longitude);
                 },
                 () => {
-                    if (window.BAGANTARA_ACTIVE_COORD) {
+                    if (window.BAGANTARA_USER_GPS_COORD) {
+                        executeHydrationAt(window.BAGANTARA_USER_GPS_COORD.lat, window.BAGANTARA_USER_GPS_COORD.lng);
+                    } else if (window.BAGANTARA_ACTIVE_COORD) {
                         executeHydrationAt(window.BAGANTARA_ACTIVE_COORD.lat, window.BAGANTARA_ACTIVE_COORD.lng);
                     } else {
                         if (statusText) statusText.innerText = wRadar.gps_denied;
@@ -807,7 +830,9 @@ window.UIManager = {
                             jarak: d.jarak
                         };
 
-                        const savedCoord = window.BAGANTARA_ACTIVE_COORD ? window.BAGANTARA_ACTIVE_COORD : { lat: this._catalogLastLat, lng: this._catalogLastLng };
+                        const savedCoord = window.BAGANTARA_USER_GPS_COORD
+                            ? { lat: window.BAGANTARA_USER_GPS_COORD.lat, lng: window.BAGANTARA_USER_GPS_COORD.lng }
+                            : (window.BAGANTARA_ACTIVE_COORD ? window.BAGANTARA_ACTIVE_COORD : { lat: this._catalogLastLat, lng: this._catalogLastLng });
                         const savedZone = window.BAGANTARA_ACTIVE_ZONE_ID;
 
                         if (window.SystemReset) window.SystemReset();
