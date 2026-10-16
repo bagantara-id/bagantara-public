@@ -6,16 +6,32 @@
 window.FlowEngine = {
     _searchTimeout: null,
     _activeFocusedInputId: 'inputSearchDropoff1',
+    _initialPickupAutoLocked: false,
 
     init: function() {
         console.log(`[FlowEngine] Mesin aktif untuk layanan: ${window.BAGANTARA_SERVICE}`);
         this._activeFocusedInputId = 'inputSearchDropoff1';
+        this._initialPickupAutoLocked = false;
         this.showSearchRoute();
     },
 
     setManualState: function(state) {
         if (state === 'DROPOFF_PIN') this.showDropoffMap();
         if (state === 'PICKUP') this.showPickupMap();
+    },
+
+    _getReferenceCoord: function() {
+        if (window.BAGANTARA_PICKUP_COORD) {
+            const [pLat, pLng] = String(window.BAGANTARA_PICKUP_COORD).split(',').map(Number);
+            if (!isNaN(pLat) && !isNaN(pLng)) return { lat: pLat, lng: pLng };
+        }
+        if (window.BAGANTARA_USER_GPS_COORD && !isNaN(parseFloat(window.BAGANTARA_USER_GPS_COORD.lat))) {
+            return { lat: parseFloat(window.BAGANTARA_USER_GPS_COORD.lat), lng: parseFloat(window.BAGANTARA_USER_GPS_COORD.lng) };
+        }
+        if (window.ConfigManager && typeof window.ConfigManager.getActiveZoneCenter === 'function') {
+            return window.ConfigManager.getActiveZoneCenter();
+        }
+        return window.BGN_CONFIG.settings.map_config.default_center;
     },
 
     _lockFieldDirectly: function(inputId, title, fLat, fLng, subtitle = '') {
@@ -26,10 +42,15 @@ window.FlowEngine = {
         const lng = parseFloat(fLng);
         if (isNaN(lat) || isNaN(lng)) return;
 
+        const attrIdx = parseInt(inputEl.getAttribute('data-index'), 10);
+        const idx = !isNaN(attrIdx) ? attrIdx : 1;
+        const targetKey = (inputId === 'inputSearchPickup') ? 'PICKUP' : `DROPOFF_${idx}`;
+
         window.BAGANTARA_ACTIVE_COORD = { lat: lat, lng: lng };
         window.TEMPORARY_GEOCODE = title;
         window.LOCKED_SEARCH_COORD = { lat: lat, lng: lng };
         window.LOCKED_SEARCH_TEXT = title;
+        window.LOCKED_SEARCH_TARGET = targetKey;
 
         if (window.GeocoderAPI && typeof window.GeocoderAPI.saveRecentPlace === 'function') {
             window.GeocoderAPI.saveRecentPlace(title, lat, lng, subtitle);
@@ -48,8 +69,6 @@ window.FlowEngine = {
                 window.UIManager.lockSearchField('inputSearchPickup');
             }
         } else {
-            const attrIdx = parseInt(inputEl.getAttribute('data-index'), 10);
-            const idx = !isNaN(attrIdx) ? attrIdx : 1;
             const rawDropNote = document.getElementById('inputSearchNotes')?.value?.trim();
             const existingStopNote = window.BAGANTARA_MULTI_DROPOFFS?.[idx - 1]?.notes;
             const notes = idx === 1
@@ -80,8 +99,11 @@ window.FlowEngine = {
 
     _autoLockGpsPickup: function() {
         const pickupInput = document.getElementById('inputSearchPickup');
-        if (!pickupInput || window.BAGANTARA_PICKUP_COORD || pickupInput.hasAttribute('readonly')) return;
+        if (!pickupInput || this._initialPickupAutoLocked || window.BAGANTARA_PICKUP_COORD || pickupInput.hasAttribute('readonly') || pickupInput.value.trim().length > 0) {
+            return;
+        }
 
+        this._initialPickupAutoLocked = true;
         const wPins = window.BGN_CONFIG.wording.map_pins;
         const noNotes = window.BGN_CONFIG.wording.mitra_popup.no_notes;
         const mapRouting = window.BGN_CONFIG.rules_app.map_and_routing;
@@ -91,6 +113,7 @@ window.FlowEngine = {
             const labelGps = wPins.gps_current_accurate;
             const rawNote = document.getElementById('inputNotesPickup')?.value?.trim();
             const notes = rawNote ? rawNote : noNotes;
+            window.BAGANTARA_USER_GPS_COORD = { lat: lat, lng: lng, ts: Date.now() };
             window.BAGANTARA_ACTIVE_COORD = { lat: lat, lng: lng };
             window.BAGANTARA_PICKUP_COORD = `${lat.toFixed(6)},${lng.toFixed(6)}`;
             window.BAGANTARA_PICKUP_DETAIL = { kec: labelGps, patokan: notes, patokan_awal: notes };
@@ -100,8 +123,9 @@ window.FlowEngine = {
             }
         };
 
-        if (window.BAGANTARA_ACTIVE_COORD && !isNaN(window.BAGANTARA_ACTIVE_COORD.lat)) {
-            applyGpsCoord(window.BAGANTARA_ACTIVE_COORD.lat, window.BAGANTARA_ACTIVE_COORD.lng);
+        // Hanya gunakan koordinat GPS asli perangkat (BUKAN default_center statis atau koordinat tujuan)
+        if (window.BAGANTARA_USER_GPS_COORD && !isNaN(parseFloat(window.BAGANTARA_USER_GPS_COORD.lat))) {
+            applyGpsCoord(parseFloat(window.BAGANTARA_USER_GPS_COORD.lat), parseFloat(window.BAGANTARA_USER_GPS_COORD.lng));
         } else if (navigator.geolocation) {
             navigator.geolocation.getCurrentPosition((pos) => {
                 applyGpsCoord(pos.coords.latitude, pos.coords.longitude);
@@ -142,10 +166,10 @@ window.FlowEngine = {
                     const drop3 = document.getElementById('inputSearchDropoff3');
                     const pickup = document.getElementById('inputSearchPickup');
 
-                    if (drop1 && !drop1.hasAttribute('readonly')) targetId = 'inputSearchDropoff1';
+                    if (pickup && !pickup.hasAttribute('readonly')) targetId = 'inputSearchPickup';
+                    else if (drop1 && !drop1.hasAttribute('readonly')) targetId = 'inputSearchDropoff1';
                     else if (drop2 && !drop2.hasAttribute('readonly')) targetId = 'inputSearchDropoff2';
                     else if (drop3 && !drop3.hasAttribute('readonly')) targetId = 'inputSearchDropoff3';
-                    else if (pickup && !pickup.hasAttribute('readonly')) targetId = 'inputSearchPickup';
                     else {
                         if (window.UIManager && window.UIManager.unlockSearchField) {
                             window.UIManager.unlockSearchField('inputSearchDropoff1');
@@ -182,13 +206,8 @@ window.FlowEngine = {
                 window.UIManager.renderSearchLoading(resultContainerId);
             }
 
-            let lat = null, lng = null;
-            if (window.BAGANTARA_ACTIVE_COORD) {
-                lat = window.BAGANTARA_ACTIVE_COORD.lat;
-                lng = window.BAGANTARA_ACTIVE_COORD.lng;
-            }
-
-            const features = await window.GeocoderAPI.search(query, lat, lng);
+            const refCoord = this._getReferenceCoord();
+            const features = await window.GeocoderAPI.search(query, refCoord.lat, refCoord.lng);
 
             if (window.UIManager && window.UIManager.renderSearchResults) {
                 window.UIManager.renderSearchResults(resultContainerId, features, (title, fLat, fLng, subtitle) => {
@@ -230,6 +249,31 @@ window.FlowEngine = {
         });
     },
 
+    _resolvePendingTypedInput: async function(inputId) {
+        const inputEl = document.getElementById(inputId);
+        if (!inputEl || inputEl.hasAttribute('readonly')) return true;
+
+        const query = inputEl.value.trim();
+        const minLen = window.BGN_CONFIG.rules_app.form_validation.min_search_query_length;
+        const gpsLabel = window.BGN_CONFIG.wording.map_pins.gps_current_accurate;
+        if (query.length < minLen || query === gpsLabel || !window.GeocoderAPI) return false;
+
+        try {
+            const refCoord = this._getReferenceCoord();
+            const features = await window.GeocoderAPI.search(query, refCoord.lat, refCoord.lng);
+            if (features && features.length > 0) {
+                const fLat = features[0].geometry.coordinates[1];
+                const fLng = features[0].geometry.coordinates[0];
+                const props = features[0].properties ? features[0].properties : {};
+                const title = features[0].text ? features[0].text : (props.name ? props.name : query);
+                const subtitle = features[0].place_name ? features[0].place_name : '';
+                this._lockFieldDirectly(inputId, title, fLat, fLng, subtitle);
+                return true;
+            }
+        } catch (e) {}
+        return false;
+    },
+
     showSearchRoute: function() {
         window.spaNavigateTo('view-search-route');
         document.getElementById('btnGlobalBack').style.display = 'block';
@@ -244,10 +288,24 @@ window.FlowEngine = {
         this._autoLockGpsPickup();
         this._renderRecentPlacesChips();
 
-        window.bindSafeButton('btnProceedToPickup', () => {
+        window.bindSafeButton('btnProceedToPickup', async () => {
+            const inputPickup = document.getElementById('inputSearchPickup');
             const inputDrop1 = document.getElementById('inputSearchDropoff1');
             const wAlerts = window.BGN_CONFIG.wording.alerts;
             const noNotes = window.BGN_CONFIG.wording.mitra_popup.no_notes;
+
+            if (inputPickup && !inputPickup.hasAttribute('readonly') && inputPickup.value.trim().length > 0) {
+                await this._resolvePendingTypedInput('inputSearchPickup');
+            }
+            if (inputDrop1 && !inputDrop1.hasAttribute('readonly') && inputDrop1.value.trim().length > 0) {
+                await this._resolvePendingTypedInput('inputSearchDropoff1');
+            }
+            for (const extraIdx of [2, 3]) {
+                const extraEl = document.getElementById(`inputSearchDropoff${extraIdx}`);
+                if (extraEl && !extraEl.hasAttribute('readonly') && extraEl.value.trim().length > 0) {
+                    await this._resolvePendingTypedInput(`inputSearchDropoff${extraIdx}`);
+                }
+            }
 
             if (!window.BAGANTARA_DROPOFF_COORD || !inputDrop1.hasAttribute('readonly')) {
                 const msg = wAlerts.require_dropoff;
@@ -255,7 +313,7 @@ window.FlowEngine = {
                 else window.alert(msg);
                 return;
             }
-            if (!window.BAGANTARA_PICKUP_COORD) {
+            if (!window.BAGANTARA_PICKUP_COORD || (inputPickup && !inputPickup.hasAttribute('readonly'))) {
                 const msg = wAlerts.require_pickup;
                 if (window.UIManager && window.UIManager.alertConfig) window.UIManager.alertConfig('require_pickup', msg);
                 else window.alert(msg);
@@ -297,14 +355,47 @@ window.FlowEngine = {
             const query = input ? input.value.trim() : '';
             const minLen = window.BGN_CONFIG.rules_app.form_validation.min_search_query_length;
             const gpsLabel = window.BGN_CONFIG.wording.map_pins.gps_current_accurate;
-            
-            if (input && !input.hasAttribute('readonly') && query.length >= minLen && query !== gpsLabel) {
-                let lat = window.BAGANTARA_ACTIVE_COORD ? window.BAGANTARA_ACTIVE_COORD.lat : null;
-                let lng = window.BAGANTARA_ACTIVE_COORD ? window.BAGANTARA_ACTIVE_COORD.lng : null;
-                
+            const targetIdx = window.BAGANTARA_MAP_TARGET_INDEX ? window.BAGANTARA_MAP_TARGET_INDEX : 1;
+            const targetKey = (state === 'PICKUP') ? 'PICKUP' : `DROPOFF_${targetIdx}`;
+
+            // Isolasi mutlak koordinat target agar tidak pernah terkontaminasi oleh field lain
+            if (input && input.hasAttribute('readonly')) {
+                if (state === 'PICKUP' && window.BAGANTARA_PICKUP_COORD) {
+                    const [pLat, pLng] = String(window.BAGANTARA_PICKUP_COORD).split(',').map(Number);
+                    if (!isNaN(pLat) && !isNaN(pLng)) {
+                        const pTitle = window.BAGANTARA_PICKUP_DETAIL?.kec ? window.BAGANTARA_PICKUP_DETAIL.kec : query;
+                        window.BAGANTARA_ACTIVE_COORD = { lat: pLat, lng: pLng };
+                        window.TEMPORARY_GEOCODE = pTitle;
+                        window.LOCKED_SEARCH_COORD = { lat: pLat, lng: pLng };
+                        window.LOCKED_SEARCH_TEXT = pTitle;
+                        window.LOCKED_SEARCH_TARGET = 'PICKUP';
+                    }
+                } else if (state === 'DROPOFF_PIN') {
+                    const stopObj = window.BAGANTARA_MULTI_DROPOFFS?.[targetIdx - 1];
+                    let dLat = stopObj ? parseFloat(stopObj.lat) : NaN;
+                    let dLng = stopObj ? parseFloat(stopObj.lng) : NaN;
+                    let dTitle = stopObj?.name ? stopObj.name : query;
+
+                    if ((isNaN(dLat) || isNaN(dLng)) && targetIdx === 1 && window.BAGANTARA_DROPOFF_COORD) {
+                        const parts = String(window.BAGANTARA_DROPOFF_COORD).split(',').map(Number);
+                        dLat = parts[0];
+                        dLng = parts[1];
+                        if (!dTitle && window.BAGANTARA_DROPOFF_DETAIL?.kec) dTitle = window.BAGANTARA_DROPOFF_DETAIL.kec;
+                    }
+
+                    if (!isNaN(dLat) && !isNaN(dLng)) {
+                        window.BAGANTARA_ACTIVE_COORD = { lat: dLat, lng: dLng };
+                        window.TEMPORARY_GEOCODE = dTitle;
+                        window.LOCKED_SEARCH_COORD = { lat: dLat, lng: dLng };
+                        window.LOCKED_SEARCH_TEXT = dTitle;
+                        window.LOCKED_SEARCH_TARGET = targetKey;
+                    }
+                }
+            } else if (input && !input.hasAttribute('readonly') && query.length >= minLen && query !== gpsLabel) {
+                const refCoord = this._getReferenceCoord();
                 if (window.GeocoderAPI) {
                     try {
-                        const features = await window.GeocoderAPI.search(query, lat, lng);
+                        const features = await window.GeocoderAPI.search(query, refCoord.lat, refCoord.lng);
                         if (features && features.length > 0) {
                             const fLat = features[0].geometry.coordinates[1];
                             const fLng = features[0].geometry.coordinates[0];
@@ -315,11 +406,23 @@ window.FlowEngine = {
                             window.TEMPORARY_GEOCODE = title;
                             window.LOCKED_SEARCH_COORD = { lat: fLat, lng: fLng };
                             window.LOCKED_SEARCH_TEXT = title;
+                            window.LOCKED_SEARCH_TARGET = targetKey;
+                        } else {
+                            window.LOCKED_SEARCH_COORD = null;
+                            window.LOCKED_SEARCH_TEXT = null;
+                            window.LOCKED_SEARCH_TARGET = targetKey;
                         }
                     } catch (err) {
                         console.warn("[Interceptor] Geocoder gagal:", err);
                     }
                 }
+            } else {
+                window.LOCKED_SEARCH_COORD = null;
+                window.LOCKED_SEARCH_TEXT = null;
+                window.LOCKED_SEARCH_TARGET = targetKey;
+                window.TEMPORARY_GEOCODE = null;
+                const refCoord = this._getReferenceCoord();
+                window.BAGANTARA_ACTIVE_COORD = { lat: refCoord.lat, lng: refCoord.lng };
             }
             this.setManualState(state);
         };
@@ -342,10 +445,10 @@ window.FlowEngine = {
                 const drop2 = document.getElementById('inputSearchDropoff2');
                 const drop3 = document.getElementById('inputSearchDropoff3');
                 const pickup = document.getElementById('inputSearchPickup');
-                if (drop1 && !drop1.hasAttribute('readonly')) targetId = 'inputSearchDropoff1';
+                if (pickup && !pickup.hasAttribute('readonly')) targetId = 'inputSearchPickup';
+                else if (drop1 && !drop1.hasAttribute('readonly')) targetId = 'inputSearchDropoff1';
                 else if (drop2 && !drop2.hasAttribute('readonly')) targetId = 'inputSearchDropoff2';
                 else if (drop3 && !drop3.hasAttribute('readonly')) targetId = 'inputSearchDropoff3';
-                else if (pickup && !pickup.hasAttribute('readonly')) targetId = 'inputSearchPickup';
                 else {
                     window.UIManager.unlockSearchField('inputSearchDropoff1');
                     targetId = 'inputSearchDropoff1';
@@ -425,13 +528,15 @@ window.FlowEngine = {
         btnNext.innerHTML = `<i class="fa-solid fa-crosshairs"></i> <span style="margin-left:4px;">${txtDropoff}</span>`;
 
         window.bindSafeButton('btnWizardNext', async () => {
-            const center = window.BAGANTARA_ACTIVE_COORD;
+            const mapCenter = window.MapEngine?.mainMap ? window.MapEngine.mainMap.getCenter() : null;
+            const center = mapCenter ? { lat: mapCenter.lat, lng: mapCenter.lng } : window.BAGANTARA_ACTIVE_COORD;
             const rawInlineNote = document.getElementById('inputInlineNotes').value.trim();
             const notes = rawInlineNote ? rawInlineNote : "";
             
             if (center) {
+                window.BAGANTARA_ACTIVE_COORD = { lat: center.lat, lng: center.lng };
                 let resolvedName = window.LOCKED_SEARCH_TEXT ? window.LOCKED_SEARCH_TEXT : window.TEMPORARY_GEOCODE;
-                if (!window.LOCKED_SEARCH_TEXT && window.GeocoderAPI) {
+                if ((!window.LOCKED_SEARCH_TEXT || !resolvedName || resolvedName.startsWith(wPins.map_point_prefix)) && window.GeocoderAPI) {
                     const currBtn = document.getElementById('btnWizardNext');
                     if (currBtn) currBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span style="margin-left:4px;">${wBtns.locking_point}</span>`;
                     resolvedName = await window.GeocoderAPI.reverseGeocode(center.lat, center.lng);
@@ -497,11 +602,14 @@ window.FlowEngine = {
             const notes = rawInlineNote ? rawInlineNote : noNotes;
             let resolvedName = window.LOCKED_SEARCH_TEXT ? window.LOCKED_SEARCH_TEXT : window.TEMPORARY_GEOCODE;
 
-            if (window.BAGANTARA_ACTIVE_COORD) {
-                const c = window.BAGANTARA_ACTIVE_COORD;
+            const mapCenter = window.MapEngine?.mainMap ? window.MapEngine.mainMap.getCenter() : null;
+            const c = mapCenter ? { lat: mapCenter.lat, lng: mapCenter.lng } : window.BAGANTARA_ACTIVE_COORD;
+
+            if (c) {
+                window.BAGANTARA_ACTIVE_COORD = { lat: c.lat, lng: c.lng };
                 window.BAGANTARA_PICKUP_COORD = `${c.lat.toFixed(6)},${c.lng.toFixed(6)}`;
 
-                if (!window.LOCKED_SEARCH_TEXT && window.GeocoderAPI) {
+                if ((!window.LOCKED_SEARCH_TEXT || !resolvedName || resolvedName.startsWith(wPins.map_point_prefix)) && window.GeocoderAPI) {
                     const currBtn = document.getElementById('btnWizardNext');
                     if (currBtn) currBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span style="margin-left:4px;">${wBtns.locking_point}</span>`;
                     resolvedName = await window.GeocoderAPI.reverseGeocode(c.lat, c.lng);

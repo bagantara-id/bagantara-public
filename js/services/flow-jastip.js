@@ -6,6 +6,7 @@
 window.FlowJastip = {
     _searchTimeout: null,
     _dropoffSearchTimeout: null,
+    _initialDropoffAutoLocked: false,
 
     init: function() {
         console.log("[FlowJastip] Mesin Diaktifkan");
@@ -14,9 +15,23 @@ window.FlowJastip = {
         window.BAGANTARA_JASTIP_VALUE = 0;
         window.BAGANTARA_DROPOFF_COORD = null;
         window.BAGANTARA_DROPOFF_DETAIL = null;
+        this._initialDropoffAutoLocked = false;
         this.showStoreSearch();
         this.setupSearchEngine(); 
         this.setupDropoffSearchInCart();
+    },
+
+    _getReferenceCoord: function() {
+        if (window.BAGANTARA_JASTIP_STORE && !isNaN(parseFloat(window.BAGANTARA_JASTIP_STORE.lat))) {
+            return { lat: parseFloat(window.BAGANTARA_JASTIP_STORE.lat), lng: parseFloat(window.BAGANTARA_JASTIP_STORE.lng) };
+        }
+        if (window.BAGANTARA_USER_GPS_COORD && !isNaN(parseFloat(window.BAGANTARA_USER_GPS_COORD.lat))) {
+            return { lat: parseFloat(window.BAGANTARA_USER_GPS_COORD.lat), lng: parseFloat(window.BAGANTARA_USER_GPS_COORD.lng) };
+        }
+        if (window.ConfigManager && typeof window.ConfigManager.getActiveZoneCenter === 'function') {
+            return window.ConfigManager.getActiveZoneCenter();
+        }
+        return window.BGN_CONFIG.settings.map_config.default_center;
     },
 
     _lockStoreDirectly: function(title, fLat, fLng, subtitle = '') {
@@ -35,6 +50,7 @@ window.FlowJastip = {
         window.TEMPORARY_GEOCODE = title;
         window.LOCKED_SEARCH_COORD = { lat: lat, lng: lng };
         window.LOCKED_SEARCH_TEXT = title;
+        window.LOCKED_SEARCH_TARGET = 'JASTIP_STORE';
 
         window.BAGANTARA_JASTIP_STORE = {
             lat: lat.toFixed(6),
@@ -92,13 +108,8 @@ window.FlowJastip = {
             if (window.UIManager && window.UIManager.renderSearchLoading) {
                 window.UIManager.renderSearchLoading('jastipStoreResults');
             }
-            let lat = null, lng = null;
-            if (window.BAGANTARA_ACTIVE_COORD) {
-                lat = window.BAGANTARA_ACTIVE_COORD.lat;
-                lng = window.BAGANTARA_ACTIVE_COORD.lng;
-            }
-            
-            const features = await window.GeocoderAPI.search(query, lat, lng);
+            const refCoord = this._getReferenceCoord();
+            const features = await window.GeocoderAPI.search(query, refCoord.lat, refCoord.lng);
             
             window.UIManager.renderSearchResults('jastipStoreResults', features, (title, fLat, fLng, subtitle) => {
                 inputStore.value = title;
@@ -139,6 +150,7 @@ window.FlowJastip = {
             btnClear.style.display = 'none';
             window.LOCKED_SEARCH_COORD = null;
             window.LOCKED_SEARCH_TEXT = null;
+            window.LOCKED_SEARCH_TARGET = null;
             document.getElementById('jastipStoreResults').classList.add('hidden');
             inputStore.focus();
         });
@@ -147,16 +159,21 @@ window.FlowJastip = {
     _autoLockJastipHomeGps: function() {
         const inputDrop = document.getElementById('inputJastipDropoffSearch');
         const btnClearDrop = document.getElementById('btnClearJastipDropoff');
-        if (!inputDrop || window.BAGANTARA_DROPOFF_COORD || inputDrop.hasAttribute('readonly')) return;
+        if (!inputDrop || this._initialDropoffAutoLocked || window.BAGANTARA_DROPOFF_COORD || inputDrop.hasAttribute('readonly') || inputDrop.value.trim().length > 0) {
+            return;
+        }
 
+        this._initialDropoffAutoLocked = true;
         const wPins = window.BGN_CONFIG.wording.map_pins;
         const noNotes = window.BGN_CONFIG.wording.mitra_popup.no_notes;
+        const mapRouting = window.BGN_CONFIG.rules_app.map_and_routing;
 
         const lockHomeCoord = (lat, lng) => {
             if (window.BAGANTARA_DROPOFF_COORD || inputDrop.hasAttribute('readonly') || inputDrop.value.trim().length > 0) return;
             const labelHome = wPins.gps_home_current;
             const rawDropNotes = document.getElementById('inputJastipDropoffNotes')?.value?.trim();
             const notes = rawDropNotes ? rawDropNotes : noNotes;
+            window.BAGANTARA_USER_GPS_COORD = { lat: lat, lng: lng, ts: Date.now() };
             window.BAGANTARA_DROPOFF_COORD = `${lat.toFixed(6)},${lng.toFixed(6)}`;
             window.BAGANTARA_DROPOFF_DETAIL = { kec: labelHome, patokan: notes };
             window.BAGANTARA_MULTI_DROPOFFS = [{
@@ -171,11 +188,51 @@ window.FlowJastip = {
             if (btnClearDrop) btnClearDrop.style.display = 'block';
         };
 
-        if (navigator.geolocation) {
+        if (window.BAGANTARA_USER_GPS_COORD && !isNaN(parseFloat(window.BAGANTARA_USER_GPS_COORD.lat))) {
+            lockHomeCoord(parseFloat(window.BAGANTARA_USER_GPS_COORD.lat), parseFloat(window.BAGANTARA_USER_GPS_COORD.lng));
+        } else if (navigator.geolocation) {
             navigator.geolocation.getCurrentPosition((pos) => {
                 lockHomeCoord(pos.coords.latitude, pos.coords.longitude);
-            }, () => {});
+            }, () => {}, {
+                enableHighAccuracy: false,
+                timeout: mapRouting.gps_timeout_ms,
+                maximumAge: mapRouting.gps_max_age_ms
+            });
         }
+    },
+
+    _lockDropoffDirectly: function(title, fLat, fLng, subtitle = '') {
+        const inputDrop = document.getElementById('inputJastipDropoffSearch');
+        const btnClearDrop = document.getElementById('btnClearJastipDropoff');
+        const lat = parseFloat(fLat);
+        const lng = parseFloat(fLng);
+        if (isNaN(lat) || isNaN(lng)) return;
+
+        if (window.GeocoderAPI && typeof window.GeocoderAPI.saveRecentPlace === 'function') {
+            window.GeocoderAPI.saveRecentPlace(title, lat, lng, subtitle);
+        }
+
+        const noNotes = window.BGN_CONFIG.wording.mitra_popup.no_notes;
+        const rawDropNotes = document.getElementById('inputJastipDropoffNotes')?.value?.trim();
+        const notes = rawDropNotes ? rawDropNotes : noNotes;
+        window.BAGANTARA_DROPOFF_COORD = `${lat.toFixed(6)},${lng.toFixed(6)}`;
+        window.BAGANTARA_DROPOFF_DETAIL = { kec: title, patokan: notes };
+        window.BAGANTARA_MULTI_DROPOFFS = [{
+            lat: parseFloat(lat.toFixed(6)),
+            lng: parseFloat(lng.toFixed(6)),
+            name: title,
+            notes: notes
+        }];
+        window.LOCKED_SEARCH_COORD = { lat: lat, lng: lng };
+        window.LOCKED_SEARCH_TEXT = title;
+        window.LOCKED_SEARCH_TARGET = 'JASTIP_DROPOFF';
+
+        if (inputDrop) {
+            inputDrop.value = title;
+            inputDrop.setAttribute('readonly', 'true');
+            inputDrop.style.fontWeight = 'bold';
+        }
+        if (btnClearDrop) btnClearDrop.style.display = 'block';
     },
 
     setupDropoffSearchInCart: function() {
@@ -187,43 +244,14 @@ window.FlowJastip = {
         if (inputDrop.dataset.searchBound === 'true') return;
         inputDrop.dataset.searchBound = 'true';
 
-        const lockDropoffDirectly = (title, fLat, fLng, subtitle = '') => {
-            const lat = parseFloat(fLat);
-            const lng = parseFloat(fLng);
-            if (isNaN(lat) || isNaN(lng)) return;
-
-            if (window.GeocoderAPI && typeof window.GeocoderAPI.saveRecentPlace === 'function') {
-                window.GeocoderAPI.saveRecentPlace(title, lat, lng, subtitle);
-            }
-
-            const noNotes = window.BGN_CONFIG.wording.mitra_popup.no_notes;
-            const rawDropNotes = document.getElementById('inputJastipDropoffNotes')?.value?.trim();
-            const notes = rawDropNotes ? rawDropNotes : noNotes;
-            window.BAGANTARA_DROPOFF_COORD = `${lat.toFixed(6)},${lng.toFixed(6)}`;
-            window.BAGANTARA_DROPOFF_DETAIL = { kec: title, patokan: notes };
-            window.BAGANTARA_MULTI_DROPOFFS = [{
-                lat: parseFloat(lat.toFixed(6)),
-                lng: parseFloat(lng.toFixed(6)),
-                name: title,
-                notes: notes
-            }];
-
-            inputDrop.value = title;
-            inputDrop.setAttribute('readonly', 'true');
-            inputDrop.style.fontWeight = 'bold';
-            if (btnClearDrop) btnClearDrop.style.display = 'block';
-        };
-
         const runDropoffSearch = async (query) => {
             if (window.UIManager && window.UIManager.renderSearchLoading) {
                 window.UIManager.renderSearchLoading('jastipDropoffResults');
             }
-            let lat = window.BAGANTARA_ACTIVE_COORD ? window.BAGANTARA_ACTIVE_COORD.lat : null;
-            let lng = window.BAGANTARA_ACTIVE_COORD ? window.BAGANTARA_ACTIVE_COORD.lng : null;
-
-            const features = await window.GeocoderAPI.search(query, lat, lng);
+            const refCoord = this._getReferenceCoord();
+            const features = await window.GeocoderAPI.search(query, refCoord.lat, refCoord.lng);
             window.UIManager.renderSearchResults('jastipDropoffResults', features, (title, fLat, fLng, subtitle) => {
-                lockDropoffDirectly(title, fLat, fLng, subtitle);
+                this._lockDropoffDirectly(title, fLat, fLng, subtitle);
             });
         };
 
@@ -253,6 +281,9 @@ window.FlowJastip = {
                 window.BAGANTARA_DROPOFF_COORD = null;
                 window.BAGANTARA_DROPOFF_DETAIL = null;
                 window.BAGANTARA_MULTI_DROPOFFS = [];
+                window.LOCKED_SEARCH_COORD = null;
+                window.LOCKED_SEARCH_TEXT = null;
+                window.LOCKED_SEARCH_TARGET = null;
                 document.getElementById('jastipDropoffResults')?.classList.add('hidden');
                 inputDrop.focus();
             });
@@ -263,18 +294,62 @@ window.FlowJastip = {
             btnGmapsDrop.addEventListener('click', () => {
                 if (window.UIManager && typeof window.UIManager.openGmapsBridgeModal === 'function') {
                     window.UIManager.openGmapsBridgeModal((title, lat, lng, subtitle) => {
-                        lockDropoffDirectly(title, lat, lng, subtitle);
+                        this._lockDropoffDirectly(title, lat, lng, subtitle);
                     }, '');
                 }
             });
         }
 
         if (btnMapDrop) {
-            btnMapDrop.addEventListener('click', () => {
+            btnMapDrop.addEventListener('click', async () => {
                 const items = window.UIJastip ? window.UIJastip.extractData() : [];
                 if (items.length > 0) window.BAGANTARA_JASTIP_ITEMS = items;
-                window.LOCKED_SEARCH_COORD = null;
-                window.LOCKED_SEARCH_TEXT = null;
+
+                const query = inputDrop.value.trim();
+                const minLen = window.BGN_CONFIG.rules_app.form_validation.min_search_query_length;
+                const gpsHomeLabel = window.BGN_CONFIG.wording.map_pins.gps_home_current;
+
+                // Isolasi penuh koordinat pengantaran agar tidak terkontaminasi oleh koordinat Toko Jastip
+                if (inputDrop.hasAttribute('readonly') && window.BAGANTARA_DROPOFF_COORD) {
+                    const [dLat, dLng] = String(window.BAGANTARA_DROPOFF_COORD).split(',').map(Number);
+                    if (!isNaN(dLat) && !isNaN(dLng)) {
+                        const dTitle = window.BAGANTARA_DROPOFF_DETAIL?.kec ? window.BAGANTARA_DROPOFF_DETAIL.kec : query;
+                        window.BAGANTARA_ACTIVE_COORD = { lat: dLat, lng: dLng };
+                        window.TEMPORARY_GEOCODE = dTitle;
+                        window.LOCKED_SEARCH_COORD = { lat: dLat, lng: dLng };
+                        window.LOCKED_SEARCH_TEXT = dTitle;
+                        window.LOCKED_SEARCH_TARGET = 'JASTIP_DROPOFF';
+                    }
+                } else if (!inputDrop.hasAttribute('readonly') && query.length >= minLen && query !== gpsHomeLabel && window.GeocoderAPI) {
+                    try {
+                        const refCoord = this._getReferenceCoord();
+                        const features = await window.GeocoderAPI.search(query, refCoord.lat, refCoord.lng);
+                        if (features && features.length > 0) {
+                            const fLat = features[0].geometry.coordinates[1];
+                            const fLng = features[0].geometry.coordinates[0];
+                            const props = features[0].properties ? features[0].properties : {};
+                            const title = features[0].text ? features[0].text : (props.name ? props.name : query);
+                            window.BAGANTARA_ACTIVE_COORD = { lat: fLat, lng: fLng };
+                            window.TEMPORARY_GEOCODE = title;
+                            window.LOCKED_SEARCH_COORD = { lat: fLat, lng: fLng };
+                            window.LOCKED_SEARCH_TEXT = title;
+                            window.LOCKED_SEARCH_TARGET = 'JASTIP_DROPOFF';
+                        } else {
+                            window.LOCKED_SEARCH_COORD = null;
+                            window.LOCKED_SEARCH_TEXT = null;
+                            window.LOCKED_SEARCH_TARGET = 'JASTIP_DROPOFF';
+                            window.TEMPORARY_GEOCODE = null;
+                        }
+                    } catch (e) {}
+                } else {
+                    window.LOCKED_SEARCH_COORD = null;
+                    window.LOCKED_SEARCH_TEXT = null;
+                    window.LOCKED_SEARCH_TARGET = 'JASTIP_DROPOFF';
+                    window.TEMPORARY_GEOCODE = null;
+                    const refCoord = this._getReferenceCoord();
+                    window.BAGANTARA_ACTIVE_COORD = { lat: refCoord.lat, lng: refCoord.lng };
+                }
+
                 this.showDropoffMap();
             });
         }
@@ -290,15 +365,14 @@ window.FlowJastip = {
 
         window.bindSafeButton('btnBackJastipSearch', () => { if (window.SystemReset) window.SystemReset(); });
         window.bindSafeButton('btnOpenGmapsJastipStore', () => {
-            if (window.UIManager && typeof window.UIManager.openGmapsBridgeModal === 'function') {
-                const rawInitQ = document.getElementById('inputJastipStore')?.value?.trim();
-                const initQ = rawInitQ ? rawInitQ : '';
-                window.UIManager.openGmapsBridgeModal((title, lat, lng, subtitle) => {
-                    const inputStore = document.getElementById('inputJastipStore');
-                    if (inputStore) inputStore.value = title;
-                    this._lockStoreDirectly(title, lat, lng, subtitle);
-                }, initQ);
-            }
+            if (window.UIManager && typeof window.UIManager.openGmapsBridgeModal !== 'function') return;
+            const rawInitQ = document.getElementById('inputJastipStore')?.value?.trim();
+            const initQ = rawInitQ ? rawInitQ : '';
+            window.UIManager.openGmapsBridgeModal((title, lat, lng, subtitle) => {
+                const inputStore = document.getElementById('inputJastipStore');
+                if (inputStore) inputStore.value = title;
+                this._lockStoreDirectly(title, lat, lng, subtitle);
+            }, initQ);
         });
         
         window.bindSafeButton('btnJastipMap', async () => { 
@@ -308,12 +382,10 @@ window.FlowJastip = {
             const minLen = window.BGN_CONFIG.rules_app.form_validation.min_search_query_length;
             
             if (input && !input.hasAttribute('readonly') && query.length >= minLen) {
-                let lat = window.BAGANTARA_ACTIVE_COORD ? window.BAGANTARA_ACTIVE_COORD.lat : null;
-                let lng = window.BAGANTARA_ACTIVE_COORD ? window.BAGANTARA_ACTIVE_COORD.lng : null;
-                
+                const refCoord = this._getReferenceCoord();
                 if (window.GeocoderAPI) {
                     try {
-                        const features = await window.GeocoderAPI.search(query, lat, lng);
+                        const features = await window.GeocoderAPI.search(query, refCoord.lat, refCoord.lng);
                         if (features && features.length > 0) {
                             const fLat = features[0].geometry.coordinates[1];
                             const fLng = features[0].geometry.coordinates[0];
@@ -324,11 +396,27 @@ window.FlowJastip = {
                             window.TEMPORARY_GEOCODE = title;
                             window.LOCKED_SEARCH_COORD = { lat: fLat, lng: fLng };
                             window.LOCKED_SEARCH_TEXT = title;
+                            window.LOCKED_SEARCH_TARGET = 'JASTIP_STORE';
                         }
                     } catch (err) {
                         console.warn("[Interceptor] Geocoder gagal:", err);
                     }
                 }
+            } else if (window.BAGANTARA_JASTIP_STORE) {
+                const sLat = parseFloat(window.BAGANTARA_JASTIP_STORE.lat);
+                const sLng = parseFloat(window.BAGANTARA_JASTIP_STORE.lng);
+                if (!isNaN(sLat) && !isNaN(sLng)) {
+                    window.BAGANTARA_ACTIVE_COORD = { lat: sLat, lng: sLng };
+                    window.TEMPORARY_GEOCODE = window.BAGANTARA_JASTIP_STORE.address;
+                    window.LOCKED_SEARCH_COORD = { lat: sLat, lng: sLng };
+                    window.LOCKED_SEARCH_TEXT = window.BAGANTARA_JASTIP_STORE.address;
+                    window.LOCKED_SEARCH_TARGET = 'JASTIP_STORE';
+                }
+            } else {
+                window.LOCKED_SEARCH_COORD = null;
+                window.LOCKED_SEARCH_TEXT = null;
+                window.LOCKED_SEARCH_TARGET = 'JASTIP_STORE';
+                window.TEMPORARY_GEOCODE = null;
             }
             this.showStoreMap(); 
         });
@@ -345,8 +433,6 @@ window.FlowJastip = {
         const noNotes = window.BGN_CONFIG.wording.mitra_popup.no_notes;
         const storeFormat = window.BGN_CONFIG.wording.templates.jastip_store_note_format;
 
-        window.dispatchEvent(new CustomEvent('wizardState', { detail: 'JASTIP_STORE' }));
-        
         document.getElementById('wizardInstruction').innerText = wPins.wizard_jastip_store;
         document.getElementById('inlineAddressPanel').style.display = 'flex';
         document.getElementById('priceArea').classList.add('hidden');
@@ -359,18 +445,21 @@ window.FlowJastip = {
         window.bindSafeButton('btnWizardNext', async () => {
             const rawInlineNote = document.getElementById('inputInlineNotes').value.trim();
             const notes = rawInlineNote ? rawInlineNote : noNotes;
-            if (!window.BAGANTARA_ACTIVE_COORD) {
+            const mapCenter = window.MapEngine?.mainMap ? window.MapEngine.mainMap.getCenter() : null;
+            const c = mapCenter ? { lat: mapCenter.lat, lng: mapCenter.lng } : window.BAGANTARA_ACTIVE_COORD;
+
+            if (!c) {
                 const msg = wAlerts.scanning_coords;
                 if (window.UIManager && window.UIManager.alertConfig) window.UIManager.alertConfig('scanning_coords', msg);
                 else window.alert(msg);
                 return;
             }
 
-            const c = window.BAGANTARA_ACTIVE_COORD;
+            window.BAGANTARA_ACTIVE_COORD = { lat: c.lat, lng: c.lng };
             const inputStoreVal = document.getElementById('inputJastipStore')?.value?.trim();
             let resolvedStoreName = window.LOCKED_SEARCH_TEXT ? window.LOCKED_SEARCH_TEXT : (inputStoreVal ? inputStoreVal : window.TEMPORARY_GEOCODE);
 
-            if (!window.LOCKED_SEARCH_TEXT && (!resolvedStoreName || resolvedStoreName.startsWith(wPins.map_point_prefix)) && window.GeocoderAPI) {
+            if ((!window.LOCKED_SEARCH_TEXT || !resolvedStoreName || resolvedStoreName.startsWith(wPins.map_point_prefix)) && window.GeocoderAPI) {
                 const currBtn = document.getElementById('btnWizardNext');
                 if (currBtn) currBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span style="margin-left:4px;">${wBtns.locking_store}</span>`;
                 resolvedStoreName = await window.GeocoderAPI.reverseGeocode(c.lat, c.lng);
@@ -393,6 +482,7 @@ window.FlowJastip = {
         });
 
         window.bindSafeButton('btnBackMap', () => { this.showStoreSearch(); });
+        window.dispatchEvent(new CustomEvent('wizardState', { detail: 'JASTIP_STORE' }));
     },
 
     showItemization: function() {
@@ -402,15 +492,18 @@ window.FlowJastip = {
         const storeTitle = document.getElementById('jastipStoreNameTitle');
         if (storeTitle && window.BAGANTARA_JASTIP_STORE) storeTitle.innerText = window.BAGANTARA_JASTIP_STORE.address;
 
-        if (window.UIJastip && (!window.BAGANTARA_JASTIP_ITEMS || window.BAGANTARA_JASTIP_ITEMS.length === 0)) {
+        const itemsContainer = document.getElementById('jastipItemsContainer');
+        const hasDomCards = Boolean(itemsContainer && itemsContainer.querySelectorAll('.jastip-item-card').length > 0);
+        if (window.UIJastip && !hasDomCards && (!window.BAGANTARA_JASTIP_ITEMS || window.BAGANTARA_JASTIP_ITEMS.length === 0)) {
             window.UIJastip.init();
         }
 
         this._autoLockJastipHomeGps();
 
-        window.bindSafeButton('btnJastipProceed', () => {
+        window.bindSafeButton('btnJastipProceed', async () => {
             const wAlerts = window.BGN_CONFIG.wording.alerts;
             const noNotes = window.BGN_CONFIG.wording.mitra_popup.no_notes;
+            const minLen = window.BGN_CONFIG.rules_app.form_validation.min_search_query_length;
             const items = window.UIJastip.extractData();
             if (items.length === 0) {
                 const msg = wAlerts.require_jastip_items;
@@ -419,6 +512,21 @@ window.FlowJastip = {
                 return;
             }
             window.BAGANTARA_JASTIP_ITEMS = items; 
+
+            const inputDrop = document.getElementById('inputJastipDropoffSearch');
+            if (inputDrop && !inputDrop.hasAttribute('readonly') && inputDrop.value.trim().length >= minLen && window.GeocoderAPI) {
+                try {
+                    const refCoord = this._getReferenceCoord();
+                    const features = await window.GeocoderAPI.search(inputDrop.value.trim(), refCoord.lat, refCoord.lng);
+                    if (features && features.length > 0) {
+                        const fLat = features[0].geometry.coordinates[1];
+                        const fLng = features[0].geometry.coordinates[0];
+                        const props = features[0].properties ? features[0].properties : {};
+                        const title = features[0].text ? features[0].text : (props.name ? props.name : inputDrop.value.trim());
+                        this._lockDropoffDirectly(title, fLat, fLng, features[0].place_name || '');
+                    }
+                } catch (e) {}
+            }
 
             const rawDropNotes = document.getElementById('inputJastipDropoffNotes')?.value?.trim();
             const dropNotes = rawDropNotes ? rawDropNotes : noNotes;
@@ -432,6 +540,8 @@ window.FlowJastip = {
             } else {
                 window.LOCKED_SEARCH_COORD = null;
                 window.LOCKED_SEARCH_TEXT = null;
+                window.LOCKED_SEARCH_TARGET = 'JASTIP_DROPOFF';
+                window.TEMPORARY_GEOCODE = null;
                 this.showDropoffMap();
             }
         });
@@ -442,7 +552,6 @@ window.FlowJastip = {
 
     showDropoffMap: function() {
         window.spaNavigateTo('view-map');
-        window.dispatchEvent(new CustomEvent('wizardState', { detail: 'DROPOFF_PIN' }));
         
         const wPins = window.BGN_CONFIG.wording.map_pins;
         const wBtns = window.BGN_CONFIG.wording.buttons;
@@ -463,16 +572,19 @@ window.FlowJastip = {
         window.bindSafeButton('btnWizardNext', async () => {
             const rawInlineNote = document.getElementById('inputInlineNotes').value.trim();
             const notes = rawInlineNote ? rawInlineNote : noNotes;
-            if (!window.BAGANTARA_ACTIVE_COORD) {
+            const mapCenter = window.MapEngine?.mainMap ? window.MapEngine.mainMap.getCenter() : null;
+            const c = mapCenter ? { lat: mapCenter.lat, lng: mapCenter.lng } : window.BAGANTARA_ACTIVE_COORD;
+
+            if (!c) {
                 const msg = wAlerts.scanning_coords;
                 if (window.UIManager && window.UIManager.alertConfig) window.UIManager.alertConfig('scanning_coords', msg);
                 else window.alert(msg);
                 return;
             }
             
-            const c = window.BAGANTARA_ACTIVE_COORD;
-            let resolvedDropName = window.TEMPORARY_GEOCODE;
-            if ((!resolvedDropName || resolvedDropName.startsWith(wPins.map_point_prefix)) && window.GeocoderAPI) {
+            window.BAGANTARA_ACTIVE_COORD = { lat: c.lat, lng: c.lng };
+            let resolvedDropName = window.LOCKED_SEARCH_TEXT ? window.LOCKED_SEARCH_TEXT : window.TEMPORARY_GEOCODE;
+            if ((!window.LOCKED_SEARCH_TEXT || !resolvedDropName || resolvedDropName.startsWith(wPins.map_point_prefix)) && window.GeocoderAPI) {
                 const currBtn = document.getElementById('btnWizardNext');
                 if (currBtn) currBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span style="margin-left:4px;">${wBtns.locking_dropoff}</span>`;
                 resolvedDropName = await window.GeocoderAPI.reverseGeocode(c.lat, c.lng);
@@ -497,10 +609,14 @@ window.FlowJastip = {
                 if (btnClearDrop) btnClearDrop.style.display = 'block';
             }
 
+            const notesFormEl = document.getElementById('inputJastipDropoffNotes');
+            if (notesFormEl && notes !== noNotes) notesFormEl.value = notes;
+
             this.showFinal(); 
         });
 
         window.bindSafeButton('btnBackMap', () => { this.showItemization(); });
+        window.dispatchEvent(new CustomEvent('wizardState', { detail: 'DROPOFF_PIN' }));
     },
 
     showFinal: function() {

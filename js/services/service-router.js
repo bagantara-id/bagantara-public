@@ -26,8 +26,9 @@ window.ServiceRouter = {
             let fallbackZoneId = null;
             const zoneData = window.BGN_CONFIG.zones;
             const earthR = window.BGN_CONFIG.rules_app.system_controls.earth_radius_km;
+            const refCoord = window.BAGANTARA_USER_GPS_COORD ? window.BAGANTARA_USER_GPS_COORD : window.BAGANTARA_ACTIVE_COORD;
             
-            if (window.BAGANTARA_ACTIVE_COORD && zoneData && zoneData.active_zones) {
+            if (refCoord && zoneData && zoneData.active_zones) {
                 const getHaversine = (lat1, lon1, lat2, lon2) => {
                     if (window.AegisEngine && typeof window.AegisEngine.calculateDistance === 'function') {
                         return window.AegisEngine.calculateDistance(lat1, lon1, lat2, lon2);
@@ -40,7 +41,7 @@ window.ServiceRouter = {
 
                 for (const z of zoneData.active_zones) {
                     if (z.is_open && z.center && z.center.lat && z.center.lng) {
-                        const dist = getHaversine(window.BAGANTARA_ACTIVE_COORD.lat, window.BAGANTARA_ACTIVE_COORD.lng, z.center.lat, z.center.lng);
+                        const dist = getHaversine(refCoord.lat, refCoord.lng, z.center.lat, z.center.lng);
                         if (dist <= z.radius_km) {
                             fallbackZoneId = z.zone_id;
                             window.BAGANTARA_ACTIVE_ZONE_ID = fallbackZoneId;
@@ -88,7 +89,7 @@ window.bindSafeButton = function(btnId, callback) {
 };
 
 window.SystemReset = function() {
-    if (localStorage.getItem('bgt_active_chat')) return;
+    if (localStorage.getItem('bgt_active_chat') || (window.ChatHandshake && typeof window.ChatHandshake.isSesiAktif === 'function' && window.ChatHandshake.isSesiAktif())) return;
     console.log("[System] Mereset SPA kembali ke Beranda Katalog Driver...");
     
     const bottomNav = document.getElementById('mainBottomNav');
@@ -120,6 +121,17 @@ window.SystemReset = function() {
     window.TEMPORARY_GEOCODE = null;
     window.LOCKED_SEARCH_COORD = null;
     window.LOCKED_SEARCH_TEXT = null;
+    window.LOCKED_SEARCH_TARGET = null;
+
+    if (window.FlowEngine) window.FlowEngine._initialPickupAutoLocked = false;
+    if (window.FlowJastip) window.FlowJastip._initialDropoffAutoLocked = false;
+
+    if (window.BAGANTARA_USER_GPS_COORD && !isNaN(parseFloat(window.BAGANTARA_USER_GPS_COORD.lat))) {
+        window.BAGANTARA_ACTIVE_COORD = {
+            lat: parseFloat(window.BAGANTARA_USER_GPS_COORD.lat),
+            lng: parseFloat(window.BAGANTARA_USER_GPS_COORD.lng)
+        };
+    }
 
     if (window.UIManager && typeof window.UIManager.updatePrelockedBannerUI === 'function') {
         window.UIManager.updatePrelockedBannerUI(null);
