@@ -12,7 +12,7 @@
     "is_active": true,
     "max_drivers_rendered": 10,
     "polling_type": "manual",
-    "cooldown_refresh_sec": 15,
+    "cooldown_refresh_sec": 20,
     "warm_signal_threshold_minutes": 2,
     "default_filter": "ALL"
   },
@@ -24,7 +24,7 @@
     "geohash_precision_level": 4,
     "enable_boundary_neighbors": true,
     "boundary_neighbor_offset_km": 4.0,
-    "rtdb_cache_ttl_sec": 30,
+    "rtdb_cache_ttl_sec": 60,
     "rtdb_fetch_timeout_ms": 10000,
     "max_offline_age_minutes": 5,
     "default_min_tariff": 10000,
@@ -38,7 +38,7 @@
   "chat_controls": {
     "media_feature_active": true,
     "driver_response_timeout_ms": 180000,
-    "radar_poll_interval_ms": 2500,
+    "radar_poll_interval_ms": 8000,
     "radar_fetch_timeout_ms": 5000,
     "catalog_send_delay_ms": 1200,
     "idle_disconnect_timeout_ms": 300000,

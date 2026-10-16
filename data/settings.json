@@ -39,8 +39,8 @@
     "api_base_url": "https://api.cloudinary.com/v1_1"
   },
   "micro_backend": {
-    "gas_fcm_url": "https://script.google.com/macros/s/AKfycby8Bz7u9PRdmex30N2cJriZmvfYgQZnzhJtAFB0ayvTcZc5bKikjuh3XciyZE5_-s752w/exec",
-    "gas_unfurl_url": "https://script.google.com/macros/s/AKfycbwQUpRgQCO_RNRxccFhbK_WUdc6XXFyJMF5dxxPVoW4yxrB8OQjp6EKCq8c3U-PeJge/exec"
+    "gas_fcm_url": "https://script.google.com/macros/s/AKfycbzz5JoOlFLT4kwTRfuzqNl3pKrpvi7xwGRa4vGpKNVpaaToFuyuLCfTcZOF0OqeyehD/exec",
+    "gas_unfurl_url": "https://script.google.com/macros/s/AKfycbzz5JoOlFLT4kwTRfuzqNl3pKrpvi7xwGRa4vGpKNVpaaToFuyuLCfTcZOF0OqeyehD/exec"
   },
   "map_config": {
     "tile_layer_url": "https://api.maptiler.com/maps/streets-v4/256/{z}/{x}/{y}.png?key=BaHHqDBvf8SyvIxFtx4r",
