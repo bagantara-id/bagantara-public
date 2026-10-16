@@ -14,6 +14,13 @@ window.GeocoderAPI = {
         return days * 24 * 60 * 60 * 1000;
     },
 
+    _getDynamicDefaultCenter: function() {
+        if (window.ConfigManager && typeof window.ConfigManager.getActiveZoneCenter === 'function') {
+            return window.ConfigManager.getActiveZoneCenter();
+        }
+        return window.BGN_CONFIG.settings.map_config.default_center;
+    },
+
     _getHaversineDistance: function(lat1, lon1, lat2, lon2) {
         if (window.AegisEngine && typeof window.AegisEngine.calculateDistance === 'function') {
             return window.AegisEngine.calculateDistance(lat1, lon1, lat2, lon2);
@@ -215,7 +222,7 @@ window.GeocoderAPI = {
         const text = rawText.trim();
         const wGeo = window.BGN_CONFIG.wording.geocoder;
         const idBbox = window.BGN_CONFIG.rules_app.geocoder_rules.indonesia_bbox;
-        const defCenter = window.BGN_CONFIG.settings.map_config.default_center;
+        const defCenter = this._getDynamicDefaultCenter();
 
         let extractedName = "";
         try {
@@ -304,7 +311,7 @@ window.GeocoderAPI = {
         const wAlerts = window.BGN_CONFIG.wording.alerts;
         const wGeo = window.BGN_CONFIG.wording.geocoder;
         const minLen = window.BGN_CONFIG.rules_app.form_validation.min_search_query_length;
-        const defCenter = window.BGN_CONFIG.settings.map_config.default_center;
+        const defCenter = this._getDynamicDefaultCenter();
         const geoRules = window.BGN_CONFIG.rules_app.geocoder_rules;
 
         if (!rawInput || rawInput.trim().length < minLen) {
@@ -312,8 +319,8 @@ window.GeocoderAPI = {
         }
 
         const text = rawInput.trim();
-        const refLat = window.BAGANTARA_ACTIVE_COORD ? window.BAGANTARA_ACTIVE_COORD.lat : defCenter.lat;
-        const refLng = window.BAGANTARA_ACTIVE_COORD ? window.BAGANTARA_ACTIVE_COORD.lng : defCenter.lng;
+        const refLat = window.BAGANTARA_USER_GPS_COORD ? window.BAGANTARA_USER_GPS_COORD.lat : (window.BAGANTARA_ACTIVE_COORD ? window.BAGANTARA_ACTIVE_COORD.lat : defCenter.lat);
+        const refLng = window.BAGANTARA_USER_GPS_COORD ? window.BAGANTARA_USER_GPS_COORD.lng : (window.BAGANTARA_ACTIVE_COORD ? window.BAGANTARA_ACTIVE_COORD.lng : defCenter.lng);
 
         const offlineParsed = this._parseGmapsStringOffline(text, refLat, refLng);
         if (offlineParsed) {
@@ -563,12 +570,12 @@ window.GeocoderAPI = {
         if (!query || query.trim().length < minLen) return [];
         const cleanQuery = query.trim().toLowerCase();
 
-        const defCenter = window.BGN_CONFIG.settings.map_config.default_center;
+        const defCenter = this._getDynamicDefaultCenter();
         const geoRules = window.BGN_CONFIG.rules_app.geocoder_rules;
         const wGeo = window.BGN_CONFIG.wording.geocoder;
 
-        const refLat = (lat !== null && !isNaN(lat)) ? parseFloat(lat) : (window.BAGANTARA_ACTIVE_COORD ? window.BAGANTARA_ACTIVE_COORD.lat : defCenter.lat);
-        const refLng = (lng !== null && !isNaN(lng)) ? parseFloat(lng) : (window.BAGANTARA_ACTIVE_COORD ? window.BAGANTARA_ACTIVE_COORD.lng : defCenter.lng);
+        const refLat = (lat !== null && !isNaN(lat)) ? parseFloat(lat) : (window.BAGANTARA_USER_GPS_COORD ? window.BAGANTARA_USER_GPS_COORD.lat : (window.BAGANTARA_ACTIVE_COORD ? window.BAGANTARA_ACTIVE_COORD.lat : defCenter.lat));
+        const refLng = (lng !== null && !isNaN(lng)) ? parseFloat(lng) : (window.BAGANTARA_USER_GPS_COORD ? window.BAGANTARA_USER_GPS_COORD.lng : (window.BAGANTARA_ACTIVE_COORD ? window.BAGANTARA_ACTIVE_COORD.lng : defCenter.lng));
 
         if (/(-?\d{1,2}\.\d{3,12}\s*,\s*\d{2,3}\.\d{3,12})|([23456789CFGHJMPQRVWX]{4,8}\+[23456789CFGHJMPQRVWX]{2,3})/i.test(query)) {
             const direct = this._parseGmapsStringOffline(query, refLat, refLng);
@@ -583,7 +590,8 @@ window.GeocoderAPI = {
             }
         }
 
-        const cached = this._getSearchCache(cleanQuery);
+        const cacheKey = `${cleanQuery}_${refLat.toFixed(2)}_${refLng.toFixed(2)}`;
+        const cached = this._getSearchCache(cacheKey);
         if (cached && cached.length > 0) return cached;
 
         const geoCfg = window.BGN_CONFIG.settings.geocoder_api;
@@ -610,7 +618,7 @@ window.GeocoderAPI = {
                     const data = await res.json();
                     const filtered = this._normalizeAndFilterIndonesia(Array.isArray(data.features) ? data.features : [], refLat, refLng);
                     if (filtered.length > 0) {
-                        this._setSearchCache(cleanQuery, filtered);
+                        this._setSearchCache(cacheKey, filtered);
                         return filtered;
                     }
                 }
@@ -631,7 +639,7 @@ window.GeocoderAPI = {
                 const data = await res.json();
                 const filtered = this._normalizeAndFilterIndonesia(Array.isArray(data.features) ? data.features : [], refLat, refLng);
                 if (filtered.length > 0) {
-                    this._setSearchCache(cleanQuery, filtered);
+                    this._setSearchCache(cacheKey, filtered);
                     return filtered;
                 }
             } catch (err) {}

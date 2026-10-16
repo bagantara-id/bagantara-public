@@ -93,9 +93,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const pickupKec = window.BAGANTARA_PICKUP_DETAIL?.kec ? window.BAGANTARA_PICKUP_DETAIL.kec : '';
             const pickupPatokan = window.BAGANTARA_PICKUP_DETAIL?.patokan ? window.BAGANTARA_PICKUP_DETAIL.patokan : '';
-            const dropoffKec = window.BAGANTARA_DROPOFF_DETAIL?.kec
-                ? window.BAGANTARA_DROPOFF_DETAIL.kec
-                : (validMultiStops[0]?.name ? validMultiStops[0].name : '');
+
+            // Pastikan dropoff_coord & dropoff_alamat merujuk ke titik tujuan akhir apabila Multi-Stop (>1 tujuan)
+            const finalStop = validMultiStops.length > 0 ? validMultiStops[validMultiStops.length - 1] : null;
+            const finalDropoffCoord = (validMultiStops.length > 1 && finalStop)
+                ? `${parseFloat(finalStop.lat).toFixed(6)},${parseFloat(finalStop.lng).toFixed(6)}`
+                : (window.BAGANTARA_DROPOFF_COORD ? window.BAGANTARA_DROPOFF_COORD : (finalStop ? `${parseFloat(finalStop.lat).toFixed(6)},${parseFloat(finalStop.lng).toFixed(6)}` : ''));
+
+            const dropoffKec = (validMultiStops.length > 1)
+                ? validMultiStops.map((s, idx) => `${idx + 1}. ${s.name}`).join(' → ')
+                : (window.BAGANTARA_DROPOFF_DETAIL?.kec
+                    ? window.BAGANTARA_DROPOFF_DETAIL.kec
+                    : (validMultiStops[0]?.name ? validMultiStops[0].name : ''));
             const dropoffPatokan = window.BAGANTARA_DROPOFF_DETAIL?.patokan ? window.BAGANTARA_DROPOFF_DETAIL.patokan : '';
 
             const payloadTiket = {
@@ -112,7 +121,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 pickup_coord: window.BAGANTARA_PICKUP_COORD ? window.BAGANTARA_PICKUP_COORD : '',
                 pickup_alamat: pickupKec,
                 pickup_patokan: pickupPatokan,
-                dropoff_coord: window.BAGANTARA_DROPOFF_COORD ? window.BAGANTARA_DROPOFF_COORD : '',
+                dropoff_coord: finalDropoffCoord,
                 dropoff_alamat: dropoffKec,
                 dropoff_patokan: dropoffPatokan,
                 multi_dropoffs: validMultiStops.length > 0 ? validMultiStops : null,
