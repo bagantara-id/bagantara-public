@@ -296,7 +296,7 @@ window.ChatHandshake = {
                 }
             }, timeoutDriverMs);
 
-            // A. Pantau perubahan metadata_order di dbChat (chatting-88040)
+            // A. Pantau perubahan metadata_order di dbChat (chatting-88040) secara real-time (0 Polling)
             if (pemantauMetadataOrder) pemantauMetadataOrder();
             pemantauMetadataOrder = onValue(referensiMetadata, (snapshot) => {
                 const meta = snapshot.val();
@@ -312,8 +312,8 @@ window.ChatHandshake = {
                 }
             });
 
-            // B. Polling ringan REST GET ke RTDB Ke-3 (futaqi-ali) (0 WebSocket Penumpang)
-            const pollIntervalMs = chatCtrl.radar_poll_interval_ms;
+            // B. Polling cadangan ultra-hemat ke RTDB Ke-3 (futaqi-ali) (Interval >= 8 detik untuk hemat kuota RTDB >70%)
+            const pollIntervalMs = Math.max(parseInt(chatCtrl.radar_poll_interval_ms, 10) || 8000, 8000);
             this._hentikanPollingRadar();
             timerPollingRadar = setInterval(async () => {
                 if (isAccepted || !idTiketAktif || !uidPengemudiTarget) {
@@ -324,7 +324,6 @@ window.ChatHandshake = {
                 if (dataRadar === undefined) return; // Abaikan error jaringan sesaat
 
                 if (dataRadar === null) {
-                    // Jika node di futaqi-ali dihapus oleh Driver, cek apakah sudah ACCEPTED atau ditolak
                     if (!isAccepted) {
                         clearTimeout(this.timeoutPesanan);
                         this._hentikanPollingRadar();
@@ -935,6 +934,7 @@ window.ChatHandshake = {
                     pickup_coord: pickupCoordStr,
                     dropoff_coord: dropoffCoordStr,
                     waypoints: stringWaypoints, 
+                    toko_jastip: lockedOrder.toko_jastip ? lockedOrder.toko_jastip : null,
                     belanjaan: layananSistem === 'JASTIP' ? (Array.isArray(lockedOrder.belanjaan) ? lockedOrder.belanjaan : []) : null,
                     wa_klien: lockedOrder.wa_klien ? lockedOrder.wa_klien : ""
                 };
