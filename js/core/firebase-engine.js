@@ -1,6 +1,6 @@
 // ==========================================
 // MESIN KATALOG DRIVER AKTIF (TWO-STAGE HYDRATION) - V8 DRIVER-FIRST EDITION
-// ARSITEKTUR: GEOHASH BOUNDARY NEIGHBORS, 30S RTDB RAM CACHE, STRICT MAX_FIRESTORE_READS, ZERO FALLBACK
+// ARSITEKTUR: GEOHASH BOUNDARY NEIGHBORS, 60S RTDB RAM CACHE, STRICT MAX_FIRESTORE_READS, ZERO FALLBACK
 // ==========================================
 
 const BASE32 = "0123456789bcdefghjkmnpqrstuvwxyz";
@@ -192,9 +192,14 @@ window.AegisEngine = {
             const fbCore = window.BGN_CONFIG.settings.firebase_core;
             const projectId = fbCore.firestore_project_id;
             const fsBaseUrl = fbCore.firestore_base_url;
+            const fetchTimeoutMs = parseInt(window.BGN_CONFIG.rules_app.matchmaking.rtdb_fetch_timeout_ms, 10) || 8000;
+
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), fetchTimeoutMs);
 
             const fsUrl = `${fsBaseUrl}/${projectId}/databases/(default)/documents/drivers/${uid}`;
-            const res = await fetch(fsUrl);
+            const res = await fetch(fsUrl, { signal: controller.signal });
+            clearTimeout(timeoutId);
 
             if (res.status === 404) {
                 const negData = {
@@ -279,10 +284,12 @@ window.AegisEngine = {
 
                 const isModeAktif = statusData.mode === 'aktif';
                 const isModeMangkal = statusData.mode === 'standby';
-                const isWaktuMangkalValid = statusData.expiresAt && (statusData.expiresAt > waktuSekarang);
-                const isTimestampValid = statusData.timestamp && ((waktuSekarang - statusData.timestamp) <= maxOfflineMs);
+                const isWaktuMangkalValid = Boolean(statusData.expiresAt && (Number(statusData.expiresAt) > waktuSekarang));
+                const isTimestampValid = Boolean(statusData.timestamp && ((waktuSekarang - Number(statusData.timestamp)) <= maxOfflineMs));
 
-                const isValidStatus = statusData.isOnline === true && isTimestampValid && (isModeAktif || (isModeMangkal && isWaktuMangkalValid));
+                // SYNC-01 FIX: Mode Aktif divalidasi dengan isTimestampValid (<= 5 menit),
+                // sedangkan Mode Standby/Mangkal (1/6/12 jam, 0 heartbeat) divalidasi dengan isWaktuMangkalValid (expiresAt > waktuSekarang)!
+                const isValidStatus = statusData.isOnline === true && ((isModeAktif && isTimestampValid) || (isModeMangkal && isWaktuMangkalValid));
                 if (!isValidStatus) continue;
 
                 const dLat = parseFloat(statusData.lat);
@@ -306,6 +313,7 @@ window.AegisEngine = {
                 const tarifMin = statusData.tarif_min ? parseInt(statusData.tarif_min, 10) : defaultMinTariff;
                 const agenda = statusData.agenda ? statusData.agenda : "";
                 const fcmToken = statusData.fcmToken ? statusData.fcmToken : "";
+                const effectiveTimestamp = isModeMangkal ? waktuSekarang : statusData.timestamp;
 
                 window.BAGANTARA_DRIVER_CACHE[uid] = {
                     layanan: arrayLayanan,
@@ -316,7 +324,7 @@ window.AegisEngine = {
                     lat: dLat,
                     lng: dLng,
                     jarak: jarakKePenumpang,
-                    timestamp: statusData.timestamp,
+                    timestamp: effectiveTimestamp,
                     fcmToken: fcmToken
                 };
 
@@ -338,7 +346,7 @@ window.AegisEngine = {
                     agenda: agenda,
                     layananList: arrayLayanan,
                     armada: armadaDriver,
-                    timestamp: statusData.timestamp,
+                    timestamp: effectiveTimestamp,
                     fcmToken: fcmToken
                 });
             }
